@@ -11,6 +11,8 @@ var (
 	ErrSpaceNotFound       = fmt.Errorf("space %w", ErrNotFound)
 	ErrMemoryNotFound      = fmt.Errorf("memory %w", ErrNotFound)
 	ErrIdempotencyConflict = fmt.Errorf("idempotency key reused with different content: %w", ErrConflict)
+	ErrLinkConflict        = fmt.Errorf("link already exists: %w", ErrConflict)
+	ErrLinkNotFound        = fmt.Errorf("link %w", ErrNotFound)
 )
 
 // FieldError describes why a single input field is invalid. Field uses the

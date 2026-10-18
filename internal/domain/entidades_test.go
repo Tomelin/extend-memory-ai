@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/google/uuid"
 
 	"github.com/Tomelin/extend-memory-ai/internal/domain"
 )
@@ -39,6 +41,7 @@ const (
 	subjectSpace subject = iota + 1
 	subjectMemory
 	subjectRecall
+	subjectLink
 )
 
 type entidades struct {
@@ -55,6 +58,13 @@ type entidades struct {
 
 	stored    domain.Memory
 	replayErr error
+
+	link     domain.LinkInput
+	newLink  domain.NewLink
+	ids      map[string]uuid.UUID
+	lexical  []domain.RecallItem
+	semantic []domain.RecallItem
+	fused    []domain.RecallItem
 }
 
 func initializeEntidades(sc *godog.ScenarioContext) {
@@ -95,6 +105,16 @@ func initializeEntidades(sc *godog.ScenarioContext) {
 	sc.Step(`^o limite deve ser (\d+) e o limite de candidatos (\d+)$`, s.limitsShouldBe)
 	sc.Step(`^a consulta deve usar somente a busca "([^"]*)"$`, s.onlyStrategy)
 
+	sc.Step(`^que a busca (textual|semântica) encontrou "([^"]*)"$`, s.strategyFound)
+	sc.Step(`^combino os resultados$`, s.fuse)
+	sc.Step(`^a ordem deve ser "([^"]*)"$`, s.orderShouldBe)
+	sc.Step(`^"([^"]*)" deve ter sido encontrada por "([^"]*)"$`, s.matchedBy)
+
+	sc.Step(`^uma relação "([^"]*)" para outra memória$`, s.aLink)
+	sc.Step(`^uma relação "([^"]*)" da memória para ela mesma$`, s.aSelfLink)
+	sc.Step(`^preparo a relação$`, s.prepareLink)
+	sc.Step(`^o peso da relação deve ser (\d+)$`, s.linkWeightShouldBe)
+
 	sc.Step(`^a preparação deve ser aceita$`, s.accepted)
 	sc.Step(`^a preparação deve falhar no campo "([^"]*)"$`, s.failedOnField)
 }
@@ -125,6 +145,17 @@ func (s *entidades) withField(field, value string) error {
 		return setMemoryField(&s.memory, field, value)
 	case subjectRecall:
 		return setRecallField(&s.recall, field, value)
+	case subjectLink:
+		if field != "weight" {
+			return fmt.Errorf("unknown link field %q", field)
+		}
+		f, err := strconv.ParseFloat(value, 32)
+		if err != nil {
+			return err
+		}
+		w := float32(f)
+		s.link.Weight = &w
+		return nil
 	}
 	return errors.New("no subject defined")
 }
@@ -302,6 +333,84 @@ func (s *entidades) failedOnField(field string) error {
 		return fmt.Errorf("expected error on field %q, got %v", field, ve.Fields)
 	}
 	return nil
+}
+
+func (s *entidades) id(label string) uuid.UUID {
+	if s.ids == nil {
+		s.ids = map[string]uuid.UUID{}
+	}
+	if _, ok := s.ids[label]; !ok {
+		s.ids[label] = uuid.New()
+	}
+	return s.ids[label]
+}
+
+func (s *entidades) strategyFound(strategy, labels string) {
+	var items []domain.RecallItem
+	for i, label := range strings.Split(labels, ", ") {
+		rank := i + 1
+		it := domain.RecallItem{Memory: domain.Memory{ID: s.id(label)}}
+		if strategy == "textual" {
+			it.LexicalRank = &rank
+		} else {
+			it.SemanticRank = &rank
+		}
+		items = append(items, it)
+	}
+	if strategy == "textual" {
+		s.lexical = items
+	} else {
+		s.semantic = items
+	}
+}
+
+func (s *entidades) fuse() {
+	s.fused = domain.FuseRRF(domain.RecallCandidates{Lexical: s.lexical, Semantic: s.semantic})
+}
+
+func (s *entidades) orderShouldBe(labels string) error {
+	want := strings.Split(labels, ", ")
+	if len(want) != len(s.fused) {
+		return fmt.Errorf("got %d items, want %d", len(s.fused), len(want))
+	}
+	for i, label := range want {
+		if s.fused[i].Memory.ID != s.id(label) {
+			return fmt.Errorf("position %d is not %s", i+1, label)
+		}
+	}
+	return nil
+}
+
+func (s *entidades) matchedBy(label, strategies string) error {
+	for _, it := range s.fused {
+		if it.Memory.ID != s.id(label) {
+			continue
+		}
+		var got []string
+		for _, m := range it.MatchedBy() {
+			got = append(got, string(m))
+		}
+		return expectEqual("matched_by", strategies, strings.Join(got, ", "))
+	}
+	return fmt.Errorf("%s not found", label)
+}
+
+func (s *entidades) aLink(relation string) {
+	s.subject = subjectLink
+	s.link = domain.LinkInput{SourceMemoryID: uuid.New(), TargetMemoryID: uuid.New(), RelationType: domain.RelationType(relation)}
+}
+
+func (s *entidades) aSelfLink(relation string) {
+	s.aLink(relation)
+	s.link.TargetMemoryID = s.link.SourceMemoryID
+}
+
+func (s *entidades) prepareLink() {
+	s.newLink, s.err = s.link.Prepare()
+}
+
+func (s *entidades) linkWeightShouldBe(w int) error {
+	return expectEqual("weight", float32(w), s.newLink.Weight)
 }
 
 func setSpaceField(in *domain.SpaceInput, field, value string) error {

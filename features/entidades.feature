@@ -151,3 +151,37 @@ Funcionalidade: Entidades de domínio da memória
       E com "filters.occurred_before" igual a "2026-10-01T00:00:00Z"
       Quando preparo a consulta
       Então a preparação deve falhar no campo "filters.occurred_before"
+
+  Regra: A fusão RRF combina as estratégias sem somar escalas diferentes
+
+    Cenário: Memória encontrada pelas duas estratégias fica à frente
+      Dado que a busca textual encontrou "M1, M2"
+      E que a busca semântica encontrou "M2, M3"
+      Quando combino os resultados
+      Então a ordem deve ser "M2, M1, M3"
+      E "M2" deve ter sido encontrada por "lexical, semantic"
+      E "M3" deve ter sido encontrada por "semantic"
+
+  Regra: Uma relação liga duas memórias distintas
+
+    Cenário: Relação sem peso recebe o peso padrão
+      Dado uma relação "supports" para outra memória
+      Quando preparo a relação
+      Então a preparação deve ser aceita
+      E o peso da relação deve ser 1
+
+    Esquema do Cenário: Relação inválida
+      Dado uma relação "<tipo>" para outra memória
+      E com "weight" igual a "<peso>"
+      Quando preparo a relação
+      Então a preparação deve falhar no campo "<campo>"
+
+      Exemplos:
+        | tipo     | peso | campo         |
+        | supports | 1.5  | weight        |
+        | apoia    | 0.5  | relation_type |
+
+    Cenário: Relação de uma memória com ela mesma
+      Dado uma relação "related_to" da memória para ela mesma
+      Quando preparo a relação
+      Então a preparação deve falhar no campo "target_memory_id"
