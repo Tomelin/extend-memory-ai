@@ -1,0 +1,798 @@
+openapi: 3.1.0
+info:
+  title: extend-memory-ai API
+  version: 1.0.0
+  summary: Memória de longo prazo para aplicações de IA.
+  description: |
+    Contrato HTTP do serviço de memória. O projeto (tenant) é sempre derivado da
+    credencial e nunca aparece na URL ou no corpo. Espaços de memória são
+    endereçados pelo `external_id`, codificado como segmento de URL.
+
+    Arquitetura e decisões: `docs/arquitetura-api.md`.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+    description: Desenvolvimento local
+security:
+  - apiKey: []
+tags:
+  - name: project
+  - name: spaces
+  - name: memories
+  - name: recall
+  - name: links
+  - name: health
+
+paths:
+  /v1/project:
+    get:
+      tags: [project]
+      operationId: getCurrentProject
+      summary: Projeto associado à credencial
+      responses:
+        '200':
+          description: Projeto atual
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /v1/spaces:
+    get:
+      tags: [spaces]
+      operationId: listSpaces
+      summary: Lista espaços do projeto
+      description: 'Escopo: `memories:read`.'
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/SpaceKind' }
+      responses:
+        '200':
+          description: Página de espaços
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpacePage' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+
+  /v1/spaces/{space}:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+    put:
+      tags: [spaces]
+      operationId: upsertSpace
+      summary: Cria ou atualiza um espaço (idempotente)
+      description: 'Escopo: `spaces:write`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpaceInput' }
+      responses:
+        '200':
+          description: Espaço já existia e foi atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Space' }
+        '201':
+          description: Espaço criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Space' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [spaces]
+      operationId: getSpace
+      summary: Obtém um espaço
+      description: 'Escopo: `memories:read`.'
+      responses:
+        '200':
+          description: Espaço
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Space' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [spaces]
+      operationId: deleteSpace
+      summary: Remove fisicamente o espaço e todas as suas memórias
+      description: 'Escopo: `spaces:write`. Operação irreversível, usada para eliminação de dados pessoais.'
+      responses:
+        '204': { description: Espaço removido }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/spaces/{space}/memories:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+    post:
+      tags: [memories]
+      operationId: retainMemory
+      summary: Grava uma memória atômica (retain)
+      description: |
+        Escopo: `memories:write`. Com `idempotency_key`, uma repetição com o mesmo
+        conteúdo retorna `200` e a memória existente; com conteúdo diferente,
+        retorna `409 idempotency_conflict`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoryInput' }
+      responses:
+        '200':
+          description: Repetição idempotente; nenhuma memória nova
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetainResult' }
+        '201':
+          description: Memória criada
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetainResult' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [memories]
+      operationId: listMemories
+      summary: Lista memórias ativas por filtros e período
+      description: 'Escopo: `memories:read`. Ordenação por `occurred_at` decrescente, paginação por keyset.'
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: memory_type
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/MemoryType' }
+        - name: source_type
+          in: query
+          schema: { type: string, maxLength: 50 }
+        - name: source_ref
+          in: query
+          schema: { type: string }
+        - name: occurred_after
+          in: query
+          schema: { type: string, format: date-time }
+        - name: occurred_before
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Página de memórias
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemoryPage' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/spaces/{space}/memories/batch:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+    post:
+      tags: [memories]
+      operationId: retainMemoriesBatch
+      summary: Grava até 100 memórias em uma única transação
+      description: 'Escopo: `memories:write`. Tudo ou nada; repetições idempotentes retornam `created: false`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              additionalProperties: false
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/MemoryInput' }
+      responses:
+        '200':
+          description: Resultado na mesma ordem dos itens enviados
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RetainResult' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/spaces/{space}/memories/{memory_id}:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+      - $ref: '#/components/parameters/MemoryId'
+    get:
+      tags: [memories]
+      operationId: getMemory
+      summary: Obtém uma memória ativa
+      description: 'Escopo: `memories:read`.'
+      responses:
+        '200':
+          description: Memória
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Memory' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [memories]
+      operationId: updateMemory
+      summary: Atualiza campos mutáveis
+      description: |
+        Escopo: `memories:write`. Se `content` mudar sem um novo `embedding`, o
+        embedding anterior é removido. Tipo, ocorrência, origem e chave de
+        idempotência são imutáveis.
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/MemoryPatch' }
+      responses:
+        '200':
+          description: Memória atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Memory' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [memories]
+      operationId: deleteMemory
+      summary: Exclusão lógica
+      description: 'Escopo: `memories:write`. Define `deleted_at`; a memória deixa de ser listada e recuperada.'
+      responses:
+        '204': { description: Memória excluída }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/spaces/{space}/recall:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+    post:
+      tags: [recall]
+      operationId: recall
+      summary: Busca híbrida (textual + semântica) com fusão RRF
+      description: |
+        Escopo: `memories:read`. Exige `query`, `query_embedding` ou ambos. A
+        busca semântica compara apenas memórias cujo `embedding_model` seja igual
+        a `query_embedding.model`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecallRequest' }
+      responses:
+        '200':
+          description: Memórias ordenadas por relevância
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecallResponse' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/spaces/{space}/memories/{memory_id}/links:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+      - $ref: '#/components/parameters/MemoryId'
+    post:
+      tags: [links]
+      operationId: createLink
+      summary: Cria relação explícita a partir desta memória
+      description: 'Escopo: `memories:write`. A memória de destino deve estar no mesmo espaço; caso contrário, `422`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LinkInput' }
+      responses:
+        '201':
+          description: Relação criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Link' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [links]
+      operationId: listLinks
+      summary: Lista relações de entrada e saída
+      description: 'Escopo: `memories:read`.'
+      parameters:
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [outgoing, incoming, both]
+            default: both
+        - name: relation_type
+          in: query
+          schema: { $ref: '#/components/schemas/RelationType' }
+      responses:
+        '200':
+          description: Relações
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Link' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/spaces/{space}/memories/{memory_id}/links/{target_id}/{relation_type}:
+    parameters:
+      - $ref: '#/components/parameters/Space'
+      - $ref: '#/components/parameters/MemoryId'
+      - name: target_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: relation_type
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/RelationType' }
+    delete:
+      tags: [links]
+      operationId: deleteLink
+      summary: Remove uma relação
+      description: 'Escopo: `memories:write`.'
+      responses:
+        '204': { description: Relação removida }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/InsufficientScope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /healthz:
+    get:
+      tags: [health]
+      operationId: liveness
+      summary: Liveness
+      security: []
+      responses:
+        '200': { description: Processo ativo }
+
+  /readyz:
+    get:
+      tags: [health]
+      operationId: readiness
+      summary: Readiness (banco acessível)
+      security: []
+      responses:
+        '200': { description: Pronto para receber tráfego }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: emk_<prefixo>_<segredo>
+      description: Chave de API do projeto. Escopos `memories:read`, `memories:write`, `spaces:write`.
+
+  parameters:
+    Space:
+      name: space
+      in: path
+      required: true
+      description: '`external_id` do espaço, codificado como segmento de URL.'
+      schema: { type: string, minLength: 1, maxLength: 255 }
+    MemoryId:
+      name: memory_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Cursor opaco retornado em `next_cursor`.
+      schema: { type: string }
+
+  headers:
+    RequestId:
+      description: Identificador da requisição, aceito do cliente ou gerado.
+      schema: { type: string }
+
+  responses:
+    MalformedRequest:
+      description: JSON ou parâmetro malformado (`malformed_request`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthenticated:
+      description: Credencial ausente, inválida, expirada ou revogada (`unauthenticated`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InsufficientScope:
+      description: Credencial sem o escopo exigido (`insufficient_scope`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Recurso inexistente ou de outro projeto (`space_not_found`, `memory_not_found`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflito de idempotência ou relação duplicada (`idempotency_conflict`, `link_conflict`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: Corpo acima do limite (`payload_too_large`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationFailed:
+      description: Regra de domínio violada (`validation_failed`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Limite de taxa excedido (`rate_limited`)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unavailable:
+      description: Dependência indisponível (`unavailable`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 com extensões `code`, `request_id` e `errors`.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          enum:
+            - malformed_request
+            - unauthenticated
+            - insufficient_scope
+            - space_not_found
+            - memory_not_found
+            - idempotency_conflict
+            - link_conflict
+            - payload_too_large
+            - validation_failed
+            - rate_limited
+            - internal
+            - unavailable
+        detail: { type: string }
+        request_id: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    Metadata:
+      type: object
+      description: Atributos livres do cliente (objeto JSON, até 8 KiB).
+      additionalProperties: true
+
+    Project:
+      type: object
+      required: [id, slug, name]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+
+    SpaceKind:
+      type: string
+      enum: [user, agent, team, session, custom]
+
+    SpaceInput:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        kind:
+          $ref: '#/components/schemas/SpaceKind'
+          default: custom
+        metadata: { $ref: '#/components/schemas/Metadata' }
+
+    Space:
+      type: object
+      required: [id, external_id, name, kind, metadata, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        external_id: { type: string }
+        name: { type: string }
+        kind: { $ref: '#/components/schemas/SpaceKind' }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SpacePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Space' }
+        next_cursor: { type: [string, 'null'] }
+
+    MemoryType:
+      type: string
+      enum: [fact, experience, preference, decision, observation, summary, context]
+
+    RelationType:
+      type: string
+      enum: [related_to, supports, contradicts, supersedes, derived_from]
+
+    Embedding:
+      type: object
+      required: [model, vector]
+      additionalProperties: false
+      properties:
+        model:
+          type: string
+          minLength: 1
+          description: Identificador do modelo que gerou o vetor.
+        vector:
+          type: array
+          minItems: 1536
+          maxItems: 1536
+          items: { type: number }
+
+    Source:
+      type: object
+      description: Origem da memória, para rastreabilidade.
+      additionalProperties: false
+      properties:
+        type: { type: string, maxLength: 50, examples: [conversation] }
+        ref: { type: string, examples: [conversa-789] }
+
+    MemoryInput:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        memory_type:
+          $ref: '#/components/schemas/MemoryType'
+          default: fact
+        content: { type: string, minLength: 1, maxLength: 16384 }
+        summary: { type: string }
+        embedding: { $ref: '#/components/schemas/Embedding' }
+        source: { $ref: '#/components/schemas/Source' }
+        idempotency_key: { type: string, minLength: 1, maxLength: 255 }
+        importance: { type: number, minimum: 0, maximum: 1, default: 0.5 }
+        occurred_at:
+          type: string
+          format: date-time
+          description: Quando o fato ocorreu. Padrão, o instante da gravação.
+        expires_at:
+          type: string
+          format: date-time
+          description: Deve ser posterior a `occurred_at`.
+        metadata: { $ref: '#/components/schemas/Metadata' }
+      examples:
+        - memory_type: preference
+          content: O usuário prefere relatórios em PDF
+          source: { type: conversation, ref: conversa-789 }
+          idempotency_key: evento-456
+          occurred_at: '2026-10-18T12:00:00Z'
+
+    MemoryPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        content: { type: string, minLength: 1, maxLength: 16384 }
+        summary: { type: [string, 'null'] }
+        embedding:
+          oneOf:
+            - $ref: '#/components/schemas/Embedding'
+            - type: 'null'
+        importance: { type: number, minimum: 0, maximum: 1 }
+        expires_at: { type: [string, 'null'], format: date-time }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+
+    Memory:
+      type: object
+      required:
+        - id
+        - space_external_id
+        - memory_type
+        - content
+        - source
+        - importance
+        - occurred_at
+        - metadata
+        - created_at
+        - updated_at
+      properties:
+        id: { type: string, format: uuid }
+        space_external_id: { type: string }
+        memory_type: { $ref: '#/components/schemas/MemoryType' }
+        content: { type: string }
+        summary: { type: [string, 'null'] }
+        embedding_model:
+          type: [string, 'null']
+          description: O vetor não é devolvido por padrão, apenas o modelo.
+        source: { $ref: '#/components/schemas/Source' }
+        idempotency_key: { type: [string, 'null'] }
+        importance: { type: number }
+        occurred_at: { type: string, format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RetainResult:
+      type: object
+      required: [created, memory]
+      properties:
+        created:
+          type: boolean
+          description: '`false` quando a requisição foi uma repetição idempotente.'
+        memory: { $ref: '#/components/schemas/Memory' }
+
+    MemoryPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Memory' }
+        next_cursor: { type: [string, 'null'] }
+
+    RecallFilters:
+      type: object
+      additionalProperties: false
+      properties:
+        memory_types:
+          type: array
+          items: { $ref: '#/components/schemas/MemoryType' }
+        occurred_after: { type: string, format: date-time }
+        occurred_before: { type: string, format: date-time }
+        source_type: { type: string }
+        source_ref: { type: string }
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+          description: Filtro por contenção (`metadata @> filtro`).
+
+    RecallRequest:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [query]
+        - required: [query_embedding]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 2000 }
+        query_embedding: { $ref: '#/components/schemas/Embedding' }
+        filters: { $ref: '#/components/schemas/RecallFilters' }
+        limit: { type: integer, minimum: 1, maximum: 100, default: 10 }
+        candidate_limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+          description: Candidatos por estratégia antes da fusão.
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Orçamento de tokens do conteúdo retornado.
+        include_links: { type: boolean, default: false }
+
+    RecallItem:
+      type: object
+      required: [memory, score, matched_by]
+      properties:
+        memory: { $ref: '#/components/schemas/Memory' }
+        score:
+          type: number
+          description: Score RRF; comparável apenas dentro da mesma resposta.
+        matched_by:
+          type: array
+          items:
+            type: string
+            enum: [lexical, semantic]
+        lexical_rank: { type: [integer, 'null'] }
+        semantic_rank: { type: [integer, 'null'] }
+        links:
+          type: array
+          items: { $ref: '#/components/schemas/Link' }
+
+    RecallResponse:
+      type: object
+      required: [items, token_estimate, truncated]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RecallItem' }
+        token_estimate: { type: integer }
+        truncated:
+          type: boolean
+          description: '`true` quando resultados foram descartados pelo orçamento de tokens.'
+
+    LinkInput:
+      type: object
+      required: [target_memory_id, relation_type]
+      additionalProperties: false
+      properties:
+        target_memory_id: { type: string, format: uuid }
+        relation_type: { $ref: '#/components/schemas/RelationType' }
+        weight: { type: number, minimum: 0, maximum: 1, default: 1 }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+
+    Link:
+      type: object
+      required: [source_memory_id, target_memory_id, relation_type, weight, metadata, created_at]
+      properties:
+        source_memory_id: { type: string, format: uuid }
+        target_memory_id: { type: string, format: uuid }
+        relation_type: { $ref: '#/components/schemas/RelationType' }
+        weight: { type: number }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+        created_at: { type: string, format: date-time }
