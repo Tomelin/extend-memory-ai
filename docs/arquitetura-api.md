@@ -49,7 +49,8 @@ flowchart LR
 
     EMB[(Provedor de embeddings<br/>do cliente)]
     PG[(PostgreSQL 17<br/>pgvector + FTS + RLS)]
-    OBS[Observabilidade<br/>OTel / Prometheus]
+    PROM[Prometheus<br/>scrape /metrics]
+    OTLP[Coletor OTLP<br/>traces]
 
     A1 -- HTTPS + API key --> API
     A2 -- HTTPS + API key --> API
@@ -57,7 +58,8 @@ flowchart LR
     A1 -. gera embeddings .-> EMB
     API -- pgx, transação por requisição --> PG
     ADM -- papel administrativo --> PG
-    API -- traces, métricas, logs --> OBS
+    PROM -- scrape --> API
+    API -- spans OTLP --> OTLP
 ```
 
 O cliente continua responsável por extrair fatos e calcular embeddings. A API
@@ -66,12 +68,13 @@ valida, isola, persiste e recupera.
 ## Arquitetura interna (Go)
 
 A aplicação segue camadas com dependências apontando para dentro (estilo
-hexagonal enxuto). O domínio e os casos de uso não importam `net/http` nem `pgx`.
+hexagonal enxuto). O domínio e os casos de uso não importam `gin`, `pgx` nem o
+código gerado pelo `sqlc`.
 
 ```mermaid
 flowchart TB
-    subgraph transport/http
-        MW[Middlewares<br/>request-id, recover, log,<br/>limite de corpo, auth, rate limit]
+    subgraph transport_http [transport/http - gin]
+        MW[Middlewares gin<br/>otelgin, request-id, recover, slog,<br/>métricas, limite de corpo, auth, rate limit]
         H[Handlers + DTOs]
     end
     subgraph app
@@ -82,7 +85,7 @@ flowchart TB
         D[Entidades, validações,<br/>erros de domínio]
     end
     subgraph adapters
-        PGA[store/postgres<br/>pgx + pgvector-go]
+        PGA[store/postgres<br/>pgx + código gerado pelo sqlc]
         AUTH[auth<br/>hash e cache de chaves]
     end
 
@@ -104,14 +107,17 @@ internal/
   domain/              # Project, Space, Memory, Link, RecallQuery, erros
   app/                 # casos de uso e interfaces (portas) que eles consomem
   auth/                # formato da chave, hash, resolução e cache
-  store/postgres/      # pool, WithProject, consultas, mapeamento de erros
-  transport/http/      # roteador, middlewares, handlers, DTOs, problem+json
-  observability/       # slog, OpenTelemetry, métricas
+  store/postgres/      # pool, WithProject, adaptação sqlc -> domínio, mapeamento de erros
+    sqlcdb/            # código gerado pelo sqlc (não editar à mão)
+  transport/http/      # engine gin, middlewares, handlers, DTOs, problem+json
+  observability/       # slog, OpenTelemetry (traces + métricas), exportador Prometheus
 api/
   openapi.yaml         # contrato público (fonte da verdade da interface)
 database/
-  initdb/              # bootstrap local atual
-  migrations/          # migrações versionadas a partir da API
+  initdb/              # bootstrap local atual (extensões)
+  migrations/          # golang-migrate: 000001_init.up.sql / 000001_init.down.sql
+  queries/             # SQL de entrada do sqlc, um arquivo por agregado
+sqlc.yaml              # configuração do sqlc
 features/              # critérios de aceitação em Gherkin
 ```
 
@@ -119,19 +125,51 @@ features/              # critérios de aceitação em Gherkin
 futuro houver um SDK Go oficial, ele fica em um módulo separado (`sdk/go`) gerado
 a partir do OpenAPI.
 
-### Bibliotecas recomendadas
+### Stack definida
 
-| Necessidade | Escolha | Motivo |
+| Necessidade | Escolha | Observações |
 | --- | --- | --- |
-| HTTP | `net/http` (Go ≥ 1.22) | O `ServeMux` já suporta método e curingas (`GET /v1/spaces/{space}`); evita dependência. `chi` é alternativa se surgirem muitos middlewares por rota. |
-| Contrato | `oapi-codegen` (modo *types* + *strict server*) | O OpenAPI é escrito primeiro; tipos e interface de servidor são gerados, impedindo divergência entre documento e código. |
-| PostgreSQL | `jackc/pgx/v5` + `pgxpool` | Driver nativo, suporte a `jsonb`, `uuid`, `timestamptz`, tracer para OpenTelemetry. |
-| Vetores | `pgvector/pgvector-go` | Tipo `pgvector.Vector` compatível com `pgx`. |
-| Consultas | SQL escrito à mão, opcionalmente `sqlc` | A busca híbrida usa CTEs e operadores específicos (`<=>`, `@@`); ORM esconderia o que precisa ser medido. |
-| Migrações | `pressly/goose` ou `golang-migrate` | Atende ao item do README sobre migração versionada; executado pela CLI, nunca no boot da API. |
-| Logs | `log/slog` (JSON) | Biblioteca padrão. |
-| Telemetria | OpenTelemetry + exportador Prometheus | Traces por requisição e consulta; métricas de latência e pool. |
-| Testes | `testing` + `testcontainers-go` (pgvector/pgvector:pg17) + `godog` | Testes de integração contra o banco real; `godog` executa os `.feature` em português. |
+| HTTP | [`gin-gonic/gin`](https://github.com/gin-gonic/gin) | Engine criada com `gin.New()` (não `gin.Default()`), para usar nossos middlewares de log (slog) e recover (problem+json). `gin.SetMode(gin.ReleaseMode)` fora do desenvolvimento. |
+| Contrato | `oapi-codegen` (geradores `gin-server` + `strict-server` + `models`) | O OpenAPI é escrito primeiro; tipos e interface de servidor para gin são gerados, impedindo divergência entre documento e código. |
+| PostgreSQL | `jackc/pgx/v5` + `pgxpool` | Driver usado pelo código gerado do sqlc (`sql_package: pgx/v5`). |
+| Consultas | [`sqlc`](https://sqlc.dev) | **Sem ORM e sem query builder.** Todo SQL fica em `database/queries/*.sql`; o sqlc gera código Go tipado. Detalhes em [Acesso a dados com sqlc](#acesso-a-dados-com-sqlc). |
+| Vetores | `pgvector/pgvector-go` | Tipo `pgvector.Vector`, mapeado no sqlc por *override* do tipo `vector`. |
+| Migrações | [`golang-migrate/migrate`](https://github.com/golang-migrate/migrate) | Arquivos `up`/`down` em `database/migrations`; também são o schema lido pelo sqlc. Detalhes em [Migrações com golang-migrate](#migrações-com-golang-migrate). |
+| Logs | `log/slog` (JSON) | Biblioteca padrão; correlacionado com traces por `trace_id`/`span_id`. |
+| Telemetria | OpenTelemetry SDK (traces + métricas) + exportador Prometheus | Métricas e spans obrigatórios desde a primeira versão. Detalhes em [Observabilidade](#observabilidade). |
+| Testes | `testing` + `testcontainers-go` (pgvector/pgvector:pg17) + `godog` | Testes de integração contra o banco real, com as migrações aplicadas; `godog` executa os `.feature` em português. |
+
+### Roteamento com gin
+
+```text
+r := gin.New()
+r.UseRawPath = true          // preserva %2F em external_id
+r.UnescapePathValues = true  // entrega o valor decodificado ao handler
+r.Use(otelgin.Middleware("memory-api"), requestID(), slogLogger(), recoverProblem(), httpMetrics(), bodyLimit())
+
+v1 := r.Group("/v1", authenticate())                  // resolve chave -> Principal no context
+v1.GET("/project", ...)
+v1.PUT("/spaces/:space", requireScope("spaces:write"), ...)
+v1.POST("/spaces/:space/memories", requireScope("memories:write"), ...)
+v1.POST("/spaces/:space/memories/batch", requireScope("memories:write"), ...)
+v1.GET("/spaces/:space/memories/:memory_id", requireScope("memories:read"), ...)
+v1.POST("/spaces/:space/recall", requireScope("memories:read"), ...)
+// ... demais rotas do OpenAPI
+```
+
+- `/memories/batch` (estático) e `/memories/:memory_id` (parâmetro) convivem no
+  mesmo segmento; versões atuais do gin aceitam isso, e um teste de roteamento
+  garante que continue assim.
+- `otelgin` é o primeiro middleware, para que o span HTTP envolva toda a cadeia,
+  inclusive autenticação e erros.
+- O `http.route` registrado em spans e métricas é o padrão da rota
+  (`/v1/spaces/:space/recall`), obtido por `c.FullPath()`, nunca a URL concreta,
+  para não explodir a cardinalidade nem expor `external_id`.
+- Os handlers só convertem DTO ⇄ domínio e chamam casos de uso; o
+  `*gin.Context` não passa da camada `transport/http`: os casos de uso recebem
+  `c.Request.Context()`.
+- Respostas de erro (incluindo 404/405 do próprio gin, via `NoRoute` e
+  `NoMethod`) são sempre `application/problem+json`.
 
 ## Fluxo de uma requisição
 
@@ -156,9 +194,9 @@ sequenceDiagram
     H->>UC: Retain(ctx, space, input)
     UC->>S: WithProject(ctx, project_id, fn)
     S->>PG: BEGIN
-    S->>PG: SELECT set_config('app.current_project_id', $1, true)
-    S->>PG: resolve space por external_id
-    S->>PG: INSERT ... ON CONFLICT DO NOTHING RETURNING
+    S->>PG: SetCurrentProject (sqlc)
+    S->>PG: GetSpaceByExternalID (sqlc)
+    S->>PG: InsertMemory ... ON CONFLICT DO NOTHING RETURNING (sqlc)
     S->>PG: COMMIT
     UC-->>H: Memory, created=true
     H-->>C: 201 Created + corpo
@@ -169,13 +207,19 @@ sequenceDiagram
 Todo acesso ao domínio passa por uma única função do adaptador:
 
 ```text
-WithProject(ctx, projectID, func(tx pgx.Tx) error) error
+WithProject(ctx, projectID, func(q *sqlcdb.Queries) error) error
 ```
 
-1. adquire uma conexão do pool e abre a transação;
-2. executa `SELECT set_config('app.current_project_id', $1, true)`;
-3. executa a função recebida;
-4. confirma ou desfaz a transação.
+1. adquire uma conexão do pool e abre a transação (`pool.BeginTx`);
+2. cria `q := sqlcdb.New(tx)`;
+3. executa `q.SetCurrentProject(ctx, projectID)`, isto é,
+   `SELECT set_config('app.current_project_id', $1, true)`;
+4. executa a função recebida com `q`;
+5. confirma ou desfaz a transação.
+
+Os casos de uso não recebem `*sqlcdb.Queries`: o adaptador `store/postgres`
+implementa as portas de `app/` usando `WithProject` e converte os tipos gerados
+em entidades do domínio.
 
 `SET LOCAL` não aceita parâmetros vinculados (`$1`); `set_config(..., true)` é o
 equivalente parametrizado e também vale apenas até o fim da transação. Por isso
@@ -188,6 +232,124 @@ consulta não retorna dados de outro projeto.
 
 As consultas ainda filtram explicitamente por `project_id` e `space_id`. Isso
 permite que o planejador use os índices compostos e documenta a intenção.
+
+## Acesso a dados com sqlc
+
+Não há ORM nem montagem dinâmica de SQL. Toda consulta é um arquivo `.sql`
+revisável, e o código Go é gerado pelo sqlc.
+
+```yaml
+# sqlc.yaml (proposto)
+version: "2"
+sql:
+  - engine: postgresql
+    schema: database/migrations      # lê somente os arquivos *.up.sql
+    queries: database/queries
+    gen:
+      go:
+        package: sqlcdb
+        out: internal/store/postgres/sqlcdb
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_interface: true          # interface Querier, útil para testes
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: vector
+            go_type: github.com/pgvector/pgvector-go.Vector
+          - db_type: vector
+            nullable: true
+            go_type:
+              import: github.com/pgvector/pgvector-go
+              type: Vector
+              pointer: true
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: jsonb
+            go_type: encoding/json.RawMessage
+```
+
+Organização das consultas:
+
+```text
+database/queries/
+  tenant.sql     # SetCurrentProject
+  auth.sql       # ResolveAPIKey, TouchAPIKey
+  projects.sql   # GetProject
+  spaces.sql     # UpsertSpace, GetSpaceByExternalID, ListSpaces, DeleteSpace
+  memories.sql   # InsertMemory, GetMemory, ListMemories, UpdateMemory, SoftDeleteMemory
+  recall.sql     # RecallHybrid, RecallLexical
+  links.sql      # InsertLink, ListLinks, DeleteLink
+```
+
+Exemplo de convenção:
+
+```sql
+-- name: InsertMemory :one
+INSERT INTO memories (project_id, space_id, memory_type, content, summary,
+                      embedding, embedding_model, source_type, source_ref,
+                      idempotency_key, idempotency_hash, importance,
+                      occurred_at, expires_at, metadata)
+VALUES (@project_id, @space_id, @memory_type, @content, sqlc.narg('summary'),
+        sqlc.narg('embedding'), sqlc.narg('embedding_model'),
+        sqlc.narg('source_type'), sqlc.narg('source_ref'),
+        sqlc.narg('idempotency_key'), sqlc.narg('idempotency_hash'), @importance,
+        @occurred_at, sqlc.narg('expires_at'), @metadata)
+ON CONFLICT (project_id, space_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL
+  DO NOTHING
+RETURNING *;
+```
+
+Regras:
+
+- **Filtros opcionais** são expressos no próprio SQL com `sqlc.narg`, por
+  exemplo `AND (sqlc.narg('source_type')::text IS NULL OR source_type = sqlc.narg('source_type'))`.
+  Assim não existe concatenação de strings em Go. Como o `pgx` usa *prepared
+  statements*, o plano dessas consultas deve ser verificado com `EXPLAIN` sobre
+  volume realista; se um filtro degradar o plano, cria-se uma consulta dedicada
+  em vez de SQL dinâmico.
+- **Arrays** (`memory_types`) usam `= ANY(sqlc.narg('memory_types')::text[])`.
+- **`metadata`**: filtro por contenção com `metadata @> sqlc.narg('metadata')::jsonb`.
+- **Nomes de consulta** (`-- name: X`) são estáveis: viram nome de span e
+  atributo `db.operation.name` nas métricas.
+- **Código gerado é versionado.** `make generate` executa `sqlc generate` e
+  `oapi-codegen`; o CI executa `sqlc vet`, `sqlc diff` e falha se o código gerado
+  estiver desatualizado.
+- O schema contém tipos e configurações que o sqlc não interpreta
+  semanticamente (`vector`, `portuguese_unaccent`); os *overrides* acima e casts
+  explícitos (`$1::vector`) resolvem a tipagem.
+
+## Migrações com golang-migrate
+
+```text
+database/migrations/
+  000001_init.up.sql                 # conteúdo atual de database/initdb (extensões, FTS, schema, RLS)
+  000001_init.down.sql
+  000002_api_keys.up.sql             # project_api_keys + resolve_api_key
+  000002_api_keys.down.sql
+  000003_idempotency_hash.up.sql
+  000003_idempotency_hash.down.sql
+  000004_roles.up.sql                # memory_app, memory_admin e GRANTs
+  000004_roles.down.sql
+```
+
+- Cada migração tem `up` e `down`; `down` é obrigatório e testado no CI
+  (`up` → `down` → `up` em um banco descartável).
+- As migrações são embutidas no binário `memory-admin` com `embed.FS` e a fonte
+  `source/iofs`, usando o driver `database/pgx/v5`. A CLI oficial `migrate`
+  também funciona sobre o mesmo diretório.
+- Execução: `memory-admin migrate up|down N|version|force V`, com o papel
+  `memory_migrator`, como passo separado do *deploy*. A API nunca migra no boot;
+  ela apenas verifica, na inicialização, se a versão em `schema_migrations` é a
+  esperada e se não está *dirty*, falhando cedo caso contrário.
+- O sqlc lê os mesmos arquivos (`*.up.sql`) como schema, garantindo que código
+  gerado e banco evoluam juntos.
+- Migrações não usam `BEGIN`/`COMMIT` explícitos quando a operação não pode
+  rodar em transação (por exemplo, `CREATE INDEX CONCURRENTLY`); nesses casos a
+  migração contém um único comando.
+- `database/initdb` permanece apenas para o `docker compose` local até a
+  primeira migração existir; depois, o ambiente local passa a usar
+  `memory-admin migrate up`.
 
 ## Autenticação e autorização
 
@@ -407,6 +569,7 @@ Algoritmo, sempre dentro de um único `project_id` e `space_id`:
 Esboço da consulta única:
 
 ```sql
+-- name: RecallHybrid :many
 WITH lexical AS (
   SELECT id, row_number() OVER (ORDER BY ts_rank_cd(search_vector, q) DESC) AS rank
   FROM memories, websearch_to_tsquery('portuguese_unaccent', $query) q
@@ -438,6 +601,10 @@ FROM fused f JOIN memories m ON m.id = f.id
 ORDER BY f.score DESC
 LIMIT $limit;
 ```
+
+No sqlc, `$query`, `$vector`, `$model` e os filtros opcionais são
+parâmetros `sqlc.narg`. Quando não há `query_embedding`, usa-se a consulta
+`RecallLexical`, evitando um ramo semântico vazio.
 
 O corte por tokens acontece em Go, sobre esse resultado. Cada item da resposta
 traz `score`, `matched_by` (`lexical`, `semantic`) e as posições de cada lista,
@@ -509,11 +676,98 @@ sua existência.
 
 ### Observabilidade
 
-- Logs JSON com `request_id`, `project_id`, `key_id`, rota, status e latência.
-- Traces OpenTelemetry: span HTTP e spans de consulta via tracer do `pgx`.
-- Métricas: latência por rota, taxa de erros por `code`, candidatos por
-  estratégia no `recall`, itens descartados pelo orçamento de tokens, uso do
-  pool de conexões.
+Métricas e spans fazem parte da primeira versão, não são uma etapa posterior.
+Uma rota só é considerada pronta quando emite span e métricas.
+
+```mermaid
+flowchart LR
+    subgraph memory-api
+        G[otelgin + middleware de métricas]
+        A[spans de caso de uso]
+        D[otelpgx<br/>spans e métricas de banco]
+        SL[slog + trace_id/span_id]
+        MP[MeterProvider]
+        TP[TracerProvider]
+    end
+    G --> TP
+    A --> TP
+    D --> TP
+    G --> MP
+    A --> MP
+    D --> MP
+    MP -- exportador Prometheus --> M[GET /metrics<br/>porta interna]
+    TP -- OTLP gRPC --> C[Coletor OpenTelemetry]
+    SL --> L[stdout JSON]
+    P[Prometheus] -- scrape --> M
+```
+
+**Inicialização** (`internal/observability`, chamada no início do `main`):
+
+- `Resource` com `service.name=memory-api`, `service.version`,
+  `deployment.environment`;
+- `MeterProvider` com `go.opentelemetry.io/otel/exporters/prometheus`, em um
+  registro próprio servido por `promhttp` em `MEMORY_METRICS_ADDR` (porta
+  separada da API pública);
+- `TracerProvider` com exportador OTLP (`otlptracegrpc`) e amostragem
+  `parentbased_traceidratio`, configurável por `OTEL_TRACES_SAMPLER` e
+  `OTEL_TRACES_SAMPLER_ARG`;
+- propagadores W3C `tracecontext` e `baggage`, para continuar o trace das
+  aplicações clientes;
+- métricas de runtime Go (`contrib/instrumentation/runtime`);
+- função `Shutdown(ctx)` chamada no *graceful shutdown* para descarregar spans.
+
+**Instrumentação**
+
+| Camada | Instrumentação | Spans |
+| --- | --- | --- |
+| HTTP (gin) | `otelgin.Middleware` | `POST /v1/spaces/:space/recall` com `http.route`, `http.response.status_code`, `project.id`, `api_key.id`, `request.id` |
+| Autenticação | manual | `auth.resolve_key` com `cache.hit` |
+| Casos de uso | manual (`tracer.Start`) | `app.Retain`, `app.RetainBatch`, `app.Recall`, `app.UpsertSpace`, ... |
+| Transação | manual | `store.WithProject` |
+| Banco | `otelpgx` como `pgx.QueryTracer` do pool | um span por consulta, nomeado pelo `-- name:` do sqlc (ex.: `RecallHybrid`) |
+| Recall | eventos no span `app.Recall` | `lexical_candidates`, `semantic_candidates`, `returned`, `truncated` |
+
+Erros: `span.RecordError` e status `Error` apenas para falhas 5xx; respostas 4xx
+recebem só o atributo `error.code`, para não poluir a taxa de erro dos traces.
+
+**Métricas desde o início** (nomes OpenTelemetry; o exportador Prometheus
+converte `.` em `_` e acrescenta a unidade, por exemplo
+`http_server_request_duration_seconds`):
+
+| Métrica | Tipo | Atributos |
+| --- | --- | --- |
+| `http.server.request.duration` | histograma (s) | `http.request.method`, `http.route`, `http.response.status_code`, `error.code` |
+| `http.server.active_requests` | up-down counter | `http.request.method`, `http.route` |
+| `memory.retain.items` | contador | `result` (`created`, `replayed`, `conflict`), `memory_type` |
+| `memory.recall.duration` | histograma (s) | `strategy` (`hybrid`, `lexical`) |
+| `memory.recall.candidates` | histograma | `strategy` (`lexical`, `semantic`) |
+| `memory.recall.results` | histograma | — |
+| `memory.recall.truncated` | contador | — |
+| `auth.failures` | contador | `reason` (`missing`, `invalid`, `revoked`, `expired`, `scope`) |
+| `auth.key_cache.lookups` | contador | `result` (`hit`, `miss`) |
+| `ratelimit.rejected` | contador | — |
+| `db.client.operation.duration` | histograma (s) | `db.operation.name` (nome sqlc) — via `otelpgx` |
+| `db.client.connection.*` | gauges | estatísticas do `pgxpool` — via `otelpgx.RecordStats` |
+| runtime Go | vários | — |
+
+Cardinalidade e privacidade:
+
+- `project.id` e `api_key.id` aparecem em spans e logs, **não** como atributos de
+  métrica por padrão; o número de projetos pode crescer sem limite.
+- `external_id`, `content`, parâmetros de consulta SQL e embeddings nunca são
+  atributos de span ou métrica (`otelpgx` configurado sem
+  `WithIncludeQueryParameters`).
+
+**Logs (slog)**
+
+- `slog.NewJSONHandler` em produção e `slog.NewTextHandler` em desenvolvimento,
+  nível por `MEMORY_LOG_LEVEL`.
+- Um `slog.Handler` próprio envolve o handler base e adiciona `trace_id` e
+  `span_id` do `context`, permitindo ir do log ao trace.
+- O middleware de log do gin registra uma linha por requisição: `request_id`,
+  `project_id`, `key_id`, `http.route`, status, latência e `error.code`.
+- Os casos de uso usam `slog.InfoContext/ErrorContext(ctx, ...)` para manter a
+  correlação.
 
 ### Configuração (variáveis de ambiente)
 
@@ -527,7 +781,13 @@ sua existência.
 | `MEMORY_KEY_CACHE_TTL` | `60s` | TTL do cache de chaves |
 | `MEMORY_MAX_BODY_BYTES` | `1048576` | limite de corpo |
 | `MEMORY_RATE_LIMIT_RPS` | `50` | limite por chave |
+| `MEMORY_LOG_LEVEL` | `info` | nível do slog |
+| `MEMORY_LOG_FORMAT` | `json` | `json` ou `text` |
+| `GIN_MODE` | `release` | modo do gin |
+| `OTEL_SERVICE_NAME` | `memory-api` | nome do serviço em traces e métricas |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel:4317` | destino dos traces |
+| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | estratégia de amostragem |
+| `OTEL_TRACES_SAMPLER_ARG` | `0.1` | fração amostrada |
 
 ### Execução e implantação
 
@@ -539,8 +799,8 @@ sua existência.
   requisições em andamento (timeout configurável) e fecha o pool.
 - Timeouts de servidor (`ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`) e
   `context` com prazo propagado até o `pgx`.
-- Migrações executadas por `memory-admin migrate` em um passo separado do
-  *deploy*.
+- Migrações executadas por `memory-admin migrate up` (golang-migrate) em um
+  passo separado do *deploy*.
 
 ### Versionamento do contrato
 
@@ -586,8 +846,8 @@ flowchart LR
 
 ## Mudanças de schema propostas
 
-Nenhuma é aplicada nesta etapa; serão as primeiras migrações versionadas da
-implementação da API.
+Nenhuma é aplicada nesta etapa; serão as primeiras migrações golang-migrate da
+implementação da API (ver [Migrações com golang-migrate](#migrações-com-golang-migrate)).
 
 1. tabela `project_api_keys` e função `resolve_api_key` (autenticação);
 2. coluna `memories.idempotency_hash bytea` (detecção de conflito de
