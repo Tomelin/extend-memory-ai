@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Tomelin/extend-memory-ai/database"
 
 	"github.com/Tomelin/extend-memory-ai/internal/auth"
 	"github.com/Tomelin/extend-memory-ai/internal/config"
@@ -30,8 +33,9 @@ const usage = `uso: memory-admin <comando>
   key revoke --prefix <prefixo>
   key list --project <slug>
   purge [--deleted-retention 720h] [--batch 1000]
+  bootstrap extensions
 
-migrate usa MEMORY_MIGRATOR_DATABASE_URL; os demais comandos usam MEMORY_ADMIN_DATABASE_URL.`
+migrate usa MEMORY_MIGRATOR_DATABASE_URL; bootstrap usa MEMORY_BOOTSTRAP_DATABASE_URL; os demais comandos usam MEMORY_ADMIN_DATABASE_URL.`
 
 // ErrUsage is returned for invalid command lines.
 var ErrUsage = errors.New("comando inválido")
@@ -47,6 +51,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, cfg confi
 	switch args[0] {
 	case "migrate":
 		return c.migrate(args[1], args[2:])
+	case "bootstrap":
+		if args[1] == "extensions" {
+			return c.bootstrapExtensions(ctx)
+		}
 	case "purge":
 		return c.purge(ctx, args[1:])
 	case "project":
@@ -356,4 +364,27 @@ func purgeLoop(step func() (int64, error)) (int64, error) {
 			return total, err
 		}
 	}
+}
+
+// bootstrapExtensions runs database/bootstrap/001-extensions.sql. It needs a
+// role allowed to create extensions (pgvector is not a trusted extension) and
+// is idempotent (CREATE EXTENSION IF NOT EXISTS). Roles are not created here.
+func (c cli) bootstrapExtensions(ctx context.Context) error {
+	if c.cfg.BootstrapDatabaseURL == "" {
+		return errors.New("MEMORY_BOOTSTRAP_DATABASE_URL não definida")
+	}
+	script, err := database.Bootstrap.ReadFile("bootstrap/001-extensions.sql")
+	if err != nil {
+		return err
+	}
+	conn, err := pgx.Connect(ctx, c.cfg.BootstrapDatabaseURL)
+	if err != nil {
+		return fmt.Errorf("conectar: %w", postgres.MapError(err))
+	}
+	defer func() { _ = conn.Close(context.WithoutCancel(ctx)) }()
+	if _, err := conn.Exec(ctx, string(script)); err != nil {
+		return fmt.Errorf("criar extensões: %w", postgres.MapError(err))
+	}
+	fmt.Fprintln(c.stdout, "extensões prontas: vector, unaccent, pg_trgm")
+	return nil
 }
