@@ -21,3 +21,9 @@ Funcionalidade: Operação em produção
       Quando executo "memory-admin purge --deleted-retention 720h"
       Então devem restar somente a memória ativa e a excluída há 1 dia
       E a saída deve informar 1 memória expirada e 1 excluída removidas
+
+  Regra: O próprio serviço pode criar as extensões do PostgreSQL
+
+    Cenário: Criar as extensões é idempotente
+      Quando executo "memory-admin bootstrap extensions" duas vezes
+      Então a saída deve informar as extensões "vector, unaccent, pg_trgm"
