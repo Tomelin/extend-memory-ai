@@ -114,7 +114,7 @@ internal/
 api/
   openapi.yaml         # contrato público (fonte da verdade da interface)
 database/
-  initdb/              # bootstrap local atual (extensões)
+  bootstrap/           # extensões e papéis (superusuário/DBA, fora das migrações)
   migrations/          # golang-migrate: 000001_init.up.sql / 000001_init.down.sql
   queries/             # SQL de entrada do sqlc, um arquivo por agregado
 sqlc.yaml              # configuração do sqlc
@@ -243,7 +243,9 @@ revisável, e o código Go é gerado pelo sqlc.
 version: "2"
 sql:
   - engine: postgresql
-    schema: database/migrations      # lê somente os arquivos *.up.sql
+    schema:                          # do diretório de migrações, lê somente *.up.sql
+      - database/bootstrap/001-extensions.sql
+      - database/migrations
     queries: database/queries
     gen:
       go:
@@ -323,14 +325,14 @@ Regras:
 
 ```text
 database/migrations/
-  000001_init.up.sql                 # conteúdo atual de database/initdb (extensões, FTS, schema, RLS)
+  000001_init.up.sql                 # conteúdo atual de database/initdb, exceto extensões (FTS, schema, RLS)
   000001_init.down.sql
   000002_api_keys.up.sql             # project_api_keys + resolve_api_key
   000002_api_keys.down.sql
   000003_idempotency_hash.up.sql
   000003_idempotency_hash.down.sql
-  000004_roles.up.sql                # memory_app, memory_admin e GRANTs
-  000004_roles.down.sql
+  000004_grants.up.sql               # GRANTs para memory_app e memory_admin
+  000004_grants.down.sql
 ```
 
 - Cada migração tem `up` e `down`; `down` é obrigatório e testado no CI
@@ -347,9 +349,10 @@ database/migrations/
 - Migrações não usam `BEGIN`/`COMMIT` explícitos quando a operação não pode
   rodar em transação (por exemplo, `CREATE INDEX CONCURRENTLY`); nesses casos a
   migração contém um único comando.
-- `database/initdb` permanece apenas para o `docker compose` local até a
-  primeira migração existir; depois, o ambiente local passa a usar
-  `memory-admin migrate up`.
+- Extensões (`vector`, `unaccent`, `pg_trgm`) e papéis ficam em
+  `database/bootstrap`, executado uma vez por ambiente por superusuário/DBA.
+  `database/initdb` é substituído por esse diretório na
+  [Etapa 1](etapa-01-fundacao.md).
 
 ## Autenticação e autorização
 
@@ -852,5 +855,7 @@ implementação da API (ver [Migrações com golang-migrate](#migrações-com-go
 1. tabela `project_api_keys` e função `resolve_api_key` (autenticação);
 2. coluna `memories.idempotency_hash bytea` (detecção de conflito de
    idempotência);
-3. papéis `memory_migrator`, `memory_app` e `memory_admin` com os privilégios
+3. GRANTs para os papéis `memory_migrator`, `memory_app` e `memory_admin`. Os
+   papéis e as extensões são objetos do cluster e ficam em `database/bootstrap`,
+   fora das migrações (ver [Etapa 1](etapa-01-fundacao.md)), com os privilégios
    descritos acima.
