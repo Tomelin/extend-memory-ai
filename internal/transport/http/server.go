@@ -39,6 +39,9 @@ type Deps struct {
 	Memories      MemoryService
 	Authenticator middleware.Authenticator
 	MaxBodyBytes  int64
+	// RateLimitRPS <= 0 disables the per-key rate limit.
+	RateLimitRPS   int
+	RateLimitBurst int
 }
 
 // NewRouter builds the gin engine with the middleware chain and routes.
@@ -72,7 +75,11 @@ func NewRouter(d Deps) (*gin.Engine, error) {
 	r.GET("/healthz", h.liveness)
 	r.GET("/readyz", h.readiness)
 
-	v1 := r.Group("/v1", middleware.Authenticate(d.Authenticator))
+	limit, err := middleware.RateLimit(otel.Meter(instrumentationName), float64(d.RateLimitRPS), d.RateLimitBurst)
+	if err != nil {
+		return nil, err
+	}
+	v1 := r.Group("/v1", middleware.Authenticate(d.Authenticator), limit)
 	v1.GET("/project", h.getCurrentProject)
 
 	read := middleware.RequireScope(d.Authenticator, domain.ScopeMemoriesRead)

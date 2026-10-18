@@ -22,6 +22,8 @@ type API struct {
 	KeyCacheTTL         time.Duration
 	KeyNegativeCacheTTL time.Duration
 	MaxBodyBytes        int64
+	RateLimitRPS        int
+	RateLimitBurst      int
 	LogLevel            slog.Level
 	LogFormat           string
 	Environment         string
@@ -42,6 +44,8 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 		KeyCacheTTL:         l.duration("MEMORY_KEY_CACHE_TTL", 60*time.Second),
 		KeyNegativeCacheTTL: l.duration("MEMORY_KEY_NEGATIVE_CACHE_TTL", 5*time.Second),
 		MaxBodyBytes:        int64(l.integer("MEMORY_MAX_BODY_BYTES", 1<<20, 1, 1<<30)),
+		RateLimitRPS:        l.integer("MEMORY_RATE_LIMIT_RPS", 50, 0, 100000),
+		RateLimitBurst:      l.integer("MEMORY_RATE_LIMIT_BURST", 100, 1, 100000),
 		LogFormat:           l.str("MEMORY_LOG_FORMAT", "json"),
 		Environment:         l.str("MEMORY_ENVIRONMENT", "development"),
 		ShutdownTimeout:     l.duration("MEMORY_SHUTDOWN_TIMEOUT", 15*time.Second),
