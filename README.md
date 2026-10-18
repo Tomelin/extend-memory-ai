@@ -152,48 +152,69 @@ iterativos, índices parciais ou particionamento. Consulte a documentação de
 
 ## Isolamento entre projetos
 
-O schema habilita e força RLS nas quatro tabelas. Antes de qualquer operação, a
-aplicação deve abrir uma transação e definir o projeto corrente:
+O schema habilita e força RLS nas quatro tabelas de domínio. Toda operação da
+API roda em uma transação aberta por `WithProject`, que define o projeto
+corrente antes de qualquer consulta:
 
 ```sql
 BEGIN;
-SET LOCAL app.current_project_id = '00000000-0000-0000-0000-000000000000';
+SELECT set_config('app.current_project_id', '00000000-0000-0000-0000-000000000000', true);
 -- consultas e alterações do projeto
 COMMIT;
 ```
 
-`SET LOCAL` limita o contexto à transação e evita vazamento de tenant quando há
-pool de conexões. Em produção, a aplicação deve conectar com um usuário sem
-`SUPERUSER` e sem `BYPASSRLS`; o usuário `postgres` do ambiente local ignora RLS
-e existe apenas para desenvolvimento.
-
-RLS é defesa em profundidade. A API ainda deve autenticar a credencial, resolver
-o projeto autorizado e nunca aceitar `project_id` arbitrário como identidade.
+O terceiro argumento `true` limita o valor à transação (equivalente a
+`SET LOCAL`, que não aceita parâmetros) e evita vazamento de tenant no pool de
+conexões. A API conecta como `memory_app`, sem `SUPERUSER` e sem `BYPASSRLS`;
+sem projeto corrente, ela não enxerga nenhuma linha. O projeto vem sempre da
+chave de API, nunca da requisição.
 
 ## Arquivos de banco
 
-Os scripts em `database/initdb` são executados em ordem quando o volume do banco
-é criado:
-
-- `001-full-text-search.sql`: `unaccent`, `pg_trgm` e configuração de busca em
-  português;
-- `002-vector.sql`: extensão `vector` do pgvector;
-- `003-memory-schema.sql`: tabelas, restrições, índices, gatilhos e políticas
-  RLS.
-
-Scripts de `docker-entrypoint-initdb.d` não são reaplicados em volumes já
-existentes. Depois do protótipo, alterações de schema devem usar uma ferramenta
-de migração versionada.
+| Caminho | Conteúdo | Quem executa |
+| --- | --- | --- |
+| `database/bootstrap/` | extensões (`vector`, `unaccent`, `pg_trgm`) e papéis `memory_migrator`, `memory_app`, `memory_admin` | superusuário/DBA, uma vez por ambiente |
+| `database/local/` | senhas de desenvolvimento dos papéis | somente o `docker-compose.yaml` |
+| `database/migrations/` | schema, índices, RLS, chaves de API e permissões ([golang-migrate](https://github.com/golang-migrate/migrate)) | `memory-admin migrate` |
+| `database/queries/` | SQL usado pelo [sqlc](https://sqlc.dev) para gerar `internal/store/postgres/sqlcdb` | `task generate` |
 
 ## Executar localmente
 
+Ferramentas: Go (versão do `go.mod`), Docker com Compose e
+[Task](https://taskfile.dev) (`go install github.com/go-task/task/v3/cmd/task@latest`).
+Para regenerar código e rodar o lint: `task tools` instala sqlc, oapi-codegen e
+golangci-lint nas versões fixadas.
+
 ```bash
-docker compose up -d
-docker compose exec postgres psql -U postgres -d extend_memory_for_ai
+task up            # PostgreSQL (com bootstrap), Jaeger e Prometheus
+task migrate:up    # aplica as migrações como memory_migrator
+
+task admin -- project create --slug assistente --name "Assistente"
+TOKEN=$(task admin -- key create --project assistente --name local --scopes memories:read,memories:write)
+
+task run           # memory-api em :8080, métricas em :9090/metrics
+curl -H "Authorization: Bearer $TOKEN" localhost:8080/v1/project
 ```
 
-As credenciais do `docker-compose.yaml` são deliberadamente locais e não devem
-ser usadas em produção.
+A chave completa é exibida apenas uma vez, na emissão. Depois da chamada:
+
+- traces no Jaeger: <http://localhost:16686> (serviço `memory-api`);
+- métricas no Prometheus: <http://localhost:9091>, por exemplo
+  `http_server_request_duration_seconds_count{http_route="/v1/project"}`.
+
+Outros comandos (`task --list` mostra todos):
+
+| Comando | Ação |
+| --- | --- |
+| `task generate` | `sqlc generate` + `oapi-codegen` |
+| `task lint` | golangci-lint, `sqlc vet` e lint do OpenAPI (Redocly via Docker) |
+| `task test` | testes unitários |
+| `task test:integration` | testes de integração e `features/fundacao.feature` (godog + testcontainers; requer Docker) |
+| `task test:migrations` | `up → down --all → up` no banco local |
+| `task down` | derruba o ambiente local |
+
+As credenciais do `docker-compose.yaml` e de `database/local` são
+deliberadamente locais e não devem ser usadas em produção.
 
 ## API
 

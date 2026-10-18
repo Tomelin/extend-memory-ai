@@ -314,7 +314,7 @@ Regras:
 - **`metadata`**: filtro por contenção com `metadata @> sqlc.narg('metadata')::jsonb`.
 - **Nomes de consulta** (`-- name: X`) são estáveis: viram nome de span e
   atributo `db.operation.name` nas métricas.
-- **Código gerado é versionado.** `make generate` executa `sqlc generate` e
+- **Código gerado é versionado.** `task generate` executa `sqlc generate` e
   `oapi-codegen`; o CI executa `sqlc vet`, `sqlc diff` e falha se o código gerado
   estiver desatualizado.
 - O schema contém tipos e configurações que o sqlc não interpreta

@@ -1,0 +1,29 @@
+version: "2"
+run:
+  build-tags:
+    - integration
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - noctx
+    - unconvert
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintln
+        - fmt.Fprintf
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Tomelin/extend-memory-ai

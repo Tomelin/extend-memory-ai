@@ -82,7 +82,7 @@ Como as tabelas usam `FORCE ROW LEVEL SECURITY`, o RLS vale também para o dono.
 ```text
 go.mod                             # module github.com/Tomelin/extend-memory-ai
 sqlc.yaml
-Makefile
+Taskfile.yml                       # go-task: comandos de geração, lint, testes e ambiente
 cmd/
   memory-api/main.go
   memory-admin/main.go
@@ -117,19 +117,23 @@ database/
 - `oapi-codegen` é configurado para gin, mas nesta etapa gera apenas
   `GET /v1/project` e os modelos de erro.
 
-Alvos do `Makefile`:
+Tarefas do `Taskfile.yml` ([go-task](https://github.com/go-task/task); não há
+`Makefile`):
 
-| Alvo | Ação |
+| Tarefa | Ação |
 | --- | --- |
-| `make generate` | `sqlc generate` + `oapi-codegen` |
-| `make lint` | `golangci-lint run`, `sqlc vet`, lint do OpenAPI |
-| `make test` | testes unitários |
-| `make test-integration` | testes com testcontainers e `godog` |
-| `make up` / `make down` | `docker compose up -d` / `down` |
-| `make migrate-up` | `go run ./cmd/memory-admin migrate up` |
-| `make run` | `go run ./cmd/memory-api` |
+| `task tools` | instala sqlc, oapi-codegen e golangci-lint nas versões fixadas |
+| `task generate` | `sqlc generate` + `oapi-codegen` |
+| `task generate:check` | `task generate`, `git diff --exit-code` e `sqlc diff` |
+| `task lint` | `golangci-lint run`, `sqlc vet`, lint do OpenAPI |
+| `task test` | testes unitários |
+| `task test:integration` | testes com testcontainers e `godog` |
+| `task test:migrations` | `up → down --all → up` no banco local |
+| `task up` / `task down` | `docker compose up -d --wait` / `down` |
+| `task migrate:up` | `go run ./cmd/memory-admin migrate up` |
+| `task run` | `go run ./cmd/memory-api` |
 
-**Pronto quando:** `make generate` não produz diff em um checkout limpo e
+**Pronto quando:** `task generate` não produz diff em um checkout limpo e
 `go build ./...` passa.
 
 ### 3. Acesso ao banco e contexto de tenant
@@ -209,7 +213,7 @@ HTTP, autenticação e banco aparece no Jaeger e
 ### 7. CLI `memory-admin`
 
 ```text
-memory-admin migrate up | down N | version | force V
+memory-admin migrate up | down N | down --all | version | force V
 memory-admin project create --slug <slug> --name <nome>
 memory-admin key create --project <slug> --name <nome> --scopes memories:read,memories:write
 memory-admin key revoke --prefix <prefixo>
@@ -238,9 +242,9 @@ GitHub Actions (`.github/workflows/ci.yaml`), em *pull requests* e na `main`:
 | Job | Passos |
 | --- | --- |
 | `lint` | `golangci-lint`, `sqlc vet`, lint do `api/openapi.yaml` |
-| `generate` | `make generate` e falha se `git diff` não estiver vazio |
+| `generate` | `task generate:check` (falha se o código gerado estiver desatualizado) |
 | `migrations` | banco temporário: bootstrap → `up` → `down -all` → `up` |
-| `test` | `make test` e `make test-integration` |
+| `test` | `task test` e `task test:integration` |
 | `build` | `go build ./...` e build da imagem Docker (sem publicar) |
 
 ## Sequência sugerida de PRs
@@ -249,7 +253,7 @@ Cada PR é pequeno, revisável e deixa a `main` funcional:
 
 1. **Banco:** `database/bootstrap`, migrações `000001`–`000004`, ajuste do
    `docker-compose.yaml`, remoção de `database/initdb`.
-2. **Esqueleto Go:** `go.mod`, `Makefile`, `sqlc.yaml`, queries, `store/postgres`,
+2. **Esqueleto Go:** `go.mod`, `Taskfile.yml`, `sqlc.yaml`, queries, `store/postgres`,
    `memory-admin` (migrate, project, key).
 3. **Servidor e observabilidade:** gin, middlewares, health, observabilidade,
    autenticação, `GET /v1/project`, Jaeger e Prometheus no compose.
@@ -258,7 +262,7 @@ Cada PR é pequeno, revisável e deixa a `main` funcional:
 ## Definição de pronto da etapa
 
 - todos os cenários de `features/fundacao.feature` passam no CI;
-- um desenvolvedor novo executa `make up && make migrate-up`, cria projeto e
+- um desenvolvedor novo executa `task up && task migrate:up`, cria projeto e
   chave pela CLI, chama `GET /v1/project` e vê o trace e as métricas localmente,
   seguindo apenas o README;
 - o README descreve esse fluxo.
