@@ -238,7 +238,8 @@ contrato público está em [`api/openapi.yaml`](api/openapi.yaml) e os critério
 aceitação em [`features/api_memoria.feature`](features/api_memoria.feature).
 
 O plano de implementação começa pela
-[Etapa 1 — Fundação da API](docs/etapa-01-fundacao.md).
+[Etapa 1 — Fundação da API](docs/etapa-01-fundacao.md), seguida pela
+[Etapa 2a — Entidades de domínio](docs/etapa-02a-entidades.md).
 
 ## Princípios para as próximas atividades
 

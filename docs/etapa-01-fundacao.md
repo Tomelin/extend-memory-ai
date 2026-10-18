@@ -276,7 +276,9 @@ Cada PR é pequeno, revisável e deixa a `main` funcional:
 ## Próxima etapa (Etapa 2)
 
 Primeira fatia vertical guiada pelos cenários já existentes em
-`features/api_memoria.feature`:
+`features/api_memoria.feature`. Ela é dividida em duas partes: a
+[Etapa 2a](etapa-02a-entidades.md) cria as entidades de domínio e a Etapa 2b
+implementa os endpoints:
 
 - `PUT/GET/DELETE /v1/spaces/{space}`;
 - `POST /v1/spaces/{space}/memories` e `/batch` com idempotência;
