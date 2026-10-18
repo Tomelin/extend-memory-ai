@@ -240,7 +240,8 @@ aceitação em [`features/api_memoria.feature`](features/api_memoria.feature).
 O plano de implementação começa pela
 [Etapa 1 — Fundação da API](docs/etapa-01-fundacao.md), seguida pela
 [Etapa 2a — Entidades de domínio](docs/etapa-02a-entidades.md) e pela
-[Etapa 2b — Endpoints](docs/etapa-02b-endpoints.md).
+[Etapa 2b — Endpoints](docs/etapa-02b-endpoints.md) e pela
+[Etapa 3 — Busca híbrida e relações](docs/etapa-03-busca-hibrida.md).
 
 ## Princípios para as próximas atividades
 
