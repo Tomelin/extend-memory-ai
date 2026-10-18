@@ -237,6 +237,12 @@ clientes está em [`docs/arquitetura-api.md`](docs/arquitetura-api.md). O
 contrato público está em [`api/openapi.yaml`](api/openapi.yaml) e os critérios de
 aceitação em [`features/api_memoria.feature`](features/api_memoria.feature).
 
+Um SDK Go independente, sem dependências do servidor, está em
+[`sdk/go`](sdk/go). Ele oferece um cliente tipado para todas as operações do
+contrato, erros RFC 9457 estruturados, `context.Context`, request ID e suporte
+correto aos campos anuláveis do JSON Merge Patch. Consulte o
+[`guia do SDK`](sdk/go/README.md) para instalação e exemplos.
+
 O plano de implementação começa pela
 [Etapa 1 — Fundação da API](docs/etapa-01-fundacao.md), seguida pela
 [Etapa 2a — Entidades de domínio](docs/etapa-02a-entidades.md) e pela

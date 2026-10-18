@@ -47,6 +47,15 @@ tasks:
   lint:go:
     cmds:
       - golangci-lint run ./...
+      - task: lint:sdk
+
+  lint:sdk:
+    internal: true
+    dir: sdk/go
+    env:
+      GOTOOLCHAIN: go1.27.2
+    cmds:
+      - golangci-lint run ./...
 
   lint:sqlc:
     cmds:
@@ -58,6 +67,15 @@ tasks:
 
   test:
     desc: Testes unitários
+    cmds:
+      - go test -race ./...
+      - task: test:sdk
+
+  test:sdk:
+    internal: true
+    dir: sdk/go
+    env:
+      GOTOOLCHAIN: go1.27.2
     cmds:
       - go test -race ./...
 
@@ -75,6 +93,15 @@ tasks:
 
   build:
     desc: Compila todos os pacotes e binários
+    cmds:
+      - go build ./...
+      - task: build:sdk
+
+  build:sdk:
+    internal: true
+    dir: sdk/go
+    env:
+      GOTOOLCHAIN: go1.27.2
     cmds:
       - go build ./...
 

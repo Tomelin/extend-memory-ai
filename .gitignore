@@ -1,0 +1,6 @@
+.idea/*
+.idea/
+
+requests.http
+*/*.http
+*.http
