@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -85,6 +86,16 @@ func initProdScenario(sc *godog.ScenarioContext, e *env) {
 		s.metrics.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 		if !strings.Contains(w.Body.String(), name) {
 			return fmt.Errorf("metric %s not found in:\n%s", name, grepLines(w.Body.String(), "ratelimit"))
+		}
+		return nil
+	})
+
+	sc.Step(`^executo "memory-admin bootstrap extensions" duas vezes$`, func() error {
+		return errors.Join(s.cli("bootstrap", "extensions"), s.cli("bootstrap", "extensions"))
+	})
+	sc.Step(`^a saída deve informar as extensões "([^"]+)"$`, func(list string) error {
+		if !strings.Contains(s.stdout, "extensões prontas: "+list) {
+			return fmt.Errorf("output %q", s.stdout)
 		}
 		return nil
 	})

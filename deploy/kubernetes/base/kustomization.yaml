@@ -9,6 +9,7 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - service.yaml
+  - httproute.yaml
   - hpa.yaml
   - pdb.yaml
   - purge-cronjob.yaml

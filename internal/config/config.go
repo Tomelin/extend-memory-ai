@@ -67,16 +67,18 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 // Admin is the configuration of memory-admin. Migrations and administrative
 // commands use different database roles.
 type Admin struct {
-	MigratorDatabaseURL string
-	AdminDatabaseURL    string
+	MigratorDatabaseURL  string
+	AdminDatabaseURL     string
+	BootstrapDatabaseURL string
 }
 
 // LoadAdmin reads the memory-admin configuration.
 func LoadAdmin(lookup LookupFunc) Admin {
 	l := loader{lookup: lookup}
 	return Admin{
-		MigratorDatabaseURL: l.str("MEMORY_MIGRATOR_DATABASE_URL", ""),
-		AdminDatabaseURL:    l.str("MEMORY_ADMIN_DATABASE_URL", ""),
+		MigratorDatabaseURL:  l.str("MEMORY_MIGRATOR_DATABASE_URL", ""),
+		AdminDatabaseURL:     l.str("MEMORY_ADMIN_DATABASE_URL", ""),
+		BootstrapDatabaseURL: l.str("MEMORY_BOOTSTRAP_DATABASE_URL", ""),
 	}
 }
 

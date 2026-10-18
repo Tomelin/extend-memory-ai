@@ -104,7 +104,7 @@ func TestFeatures(t *testing.T) {
 		db:       db,
 		spans:    tracetest.NewInMemoryExporter(),
 		logs:     &syncBuffer{},
-		adminCfg: config.Admin{MigratorDatabaseURL: db.MigratorURL, AdminDatabaseURL: db.AdminURL},
+		adminCfg: config.Admin{MigratorDatabaseURL: db.MigratorURL, AdminDatabaseURL: db.AdminURL, BootstrapDatabaseURL: db.SuperURL},
 		cfg: config.API{
 			DatabaseURL:         db.AppURL,
 			DBMaxConns:          5,
