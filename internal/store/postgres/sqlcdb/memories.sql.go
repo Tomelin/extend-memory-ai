@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	pgvector "github.com/pgvector/pgvector-go"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
@@ -424,6 +425,113 @@ func (q *Queries) RecallLexical(ctx context.Context, arg RecallLexicalParams) ([
 	var items []RecallLexicalRow
 	for rows.Next() {
 		var i RecallLexicalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.SpaceID,
+			&i.MemoryType,
+			&i.Content,
+			&i.Summary,
+			&i.EmbeddingModel,
+			&i.SourceType,
+			&i.SourceRef,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.Importance,
+			&i.OccurredAt,
+			&i.ExpiresAt,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Rank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recallSemantic = `-- name: RecallSemantic :many
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at,
+  row_number() OVER (ORDER BY embedding <=> $1::vector, id)::int AS rank
+FROM memories
+WHERE space_id = $2
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  AND embedding IS NOT NULL AND embedding_model = $3::text
+  AND ($4::text[] IS NULL OR memory_type = ANY ($4::text[]))
+  AND ($5::timestamptz IS NULL OR occurred_at >= $5::timestamptz)
+  AND ($6::timestamptz IS NULL OR occurred_at < $6::timestamptz)
+  AND ($7::text IS NULL OR source_type = $7::text)
+  AND ($8::text IS NULL OR source_ref = $8::text)
+  AND ($9::jsonb IS NULL OR metadata @> $9::jsonb)
+ORDER BY rank
+LIMIT $10::int
+`
+
+type RecallSemanticParams struct {
+	QueryVector    pgvector.Vector
+	SpaceID        uuid.UUID
+	EmbeddingModel string
+	MemoryTypes    []string
+	OccurredAfter  *time.Time
+	OccurredBefore *time.Time
+	SourceType     *string
+	SourceRef      *string
+	Metadata       []byte
+	CandidateLimit int32
+}
+
+type RecallSemanticRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	Rank            int32
+}
+
+// Exact nearest neighbours by cosine distance, restricted to the query's
+// embedding model: vectors of different models are not comparable.
+func (q *Queries) RecallSemantic(ctx context.Context, arg RecallSemanticParams) ([]RecallSemanticRow, error) {
+	rows, err := q.db.Query(ctx, recallSemantic,
+		arg.QueryVector,
+		arg.SpaceID,
+		arg.EmbeddingModel,
+		arg.MemoryTypes,
+		arg.OccurredAfter,
+		arg.OccurredBefore,
+		arg.SourceType,
+		arg.SourceRef,
+		arg.Metadata,
+		arg.CandidateLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecallSemanticRow
+	for rows.Next() {
+		var i RecallSemanticRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,

@@ -79,3 +79,23 @@ WHERE space_id = sqlc.arg(space_id)
        OR (occurred_at, id) < (sqlc.narg(after_occurred_at)::timestamptz, sqlc.narg(after_id)::uuid))
 ORDER BY occurred_at DESC, id DESC
 LIMIT sqlc.arg(row_limit)::int;
+
+-- name: RecallSemantic :many
+-- Exact nearest neighbours by cosine distance, restricted to the query's
+-- embedding model: vectors of different models are not comparable.
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at,
+  row_number() OVER (ORDER BY embedding <=> sqlc.arg(query_vector)::vector, id)::int AS rank
+FROM memories
+WHERE space_id = sqlc.arg(space_id)
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  AND embedding IS NOT NULL AND embedding_model = sqlc.arg(embedding_model)::text
+  AND (sqlc.narg(memory_types)::text[] IS NULL OR memory_type = ANY (sqlc.narg(memory_types)::text[]))
+  AND (sqlc.narg(occurred_after)::timestamptz IS NULL OR occurred_at >= sqlc.narg(occurred_after)::timestamptz)
+  AND (sqlc.narg(occurred_before)::timestamptz IS NULL OR occurred_at < sqlc.narg(occurred_before)::timestamptz)
+  AND (sqlc.narg(source_type)::text IS NULL OR source_type = sqlc.narg(source_type)::text)
+  AND (sqlc.narg(source_ref)::text IS NULL OR source_ref = sqlc.narg(source_ref)::text)
+  AND (sqlc.narg(metadata)::jsonb IS NULL OR metadata @> sqlc.narg(metadata)::jsonb)
+ORDER BY rank
+LIMIT sqlc.arg(candidate_limit)::int;
