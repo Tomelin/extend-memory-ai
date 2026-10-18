@@ -194,6 +194,13 @@ docker compose exec postgres psql -U postgres -d extend_memory_for_ai
 As credenciais do `docker-compose.yaml` são deliberadamente locais e não devem
 ser usadas em produção.
 
+## API
+
+A arquitetura da API HTTP (Go) que expõe `retain` e `recall` às aplicações
+clientes está em [`docs/arquitetura-api.md`](docs/arquitetura-api.md). O
+contrato público está em [`api/openapi.yaml`](api/openapi.yaml) e os critérios de
+aceitação em [`features/api_memoria.feature`](features/api_memoria.feature).
+
 ## Princípios para as próximas atividades
 
 - cada mudança funcional começa com cenários Gherkin observáveis;
