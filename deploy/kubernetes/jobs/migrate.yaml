@@ -1,0 +1,33 @@
+# Applied once per release, before the Deployment rollout:
+#   kubectl create -f deploy/kubernetes/jobs/migrate.yaml
+# (create, not apply: generateName gives each run its own Job).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: memory-migrate-
+  labels:
+    app.kubernetes.io/name: memory-migrate
+    app.kubernetes.io/part-of: extend-memory-ai
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/tomelin/extend-memory-ai:latest
+          command: ["/usr/local/bin/memory-admin", "migrate", "up"]
+          env:
+            - name: MEMORY_MIGRATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: memory-api, key: MEMORY_MIGRATOR_DATABASE_URL}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
