@@ -33,6 +33,8 @@ type MemoryService interface {
 	CreateLink(ctx context.Context, projectID uuid.UUID, externalID string, in domain.LinkInput) (domain.Link, error)
 	ListLinks(ctx context.Context, projectID uuid.UUID, externalID string, memoryID uuid.UUID, f domain.LinkFilter) ([]domain.Link, error)
 	DeleteLink(ctx context.Context, projectID uuid.UUID, externalID string, source, target uuid.UUID, relation domain.RelationType) error
+	ListSpaces(ctx context.Context, projectID uuid.UUID, in domain.ListSpacesInput) (domain.SpacePage, error)
+	UpdateMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID, p domain.MemoryPatch) (domain.Memory, error)
 }
 
 func (h handlers) upsertSpace(c *gin.Context) {
