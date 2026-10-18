@@ -13,6 +13,11 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/Tomelin/extend-memory-ai/internal/auth"
 	"github.com/Tomelin/extend-memory-ai/internal/store/postgres"
@@ -22,7 +27,8 @@ import (
 // prodScenario runs features/producao.feature.
 type prodScenario struct {
 	*scenario
-	seeded map[string]uuid.UUID
+	seeded  map[string]uuid.UUID
+	metrics http.Handler
 }
 
 func initProdScenario(sc *godog.ScenarioContext, e *env) {
@@ -33,6 +39,15 @@ func initProdScenario(sc *godog.ScenarioContext, e *env) {
 		if err != nil {
 			return err
 		}
+		// Earlier suites restart the app, which replaces and shuts down the
+		// global meter provider; this router gets its own registry.
+		reg := prometheus.NewRegistry()
+		exp, err := otelprom.New(otelprom.WithRegisterer(reg))
+		if err != nil {
+			return err
+		}
+		otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(exp)))
+		s.metrics = promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 		store := postgres.New(pool)
 		authn, err := auth.NewAuthenticator(store, auth.Options{})
 		if err != nil {
@@ -67,7 +82,7 @@ func initProdScenario(sc *godog.ScenarioContext, e *env) {
 	})
 	sc.Step(`^deve existir a métrica "([^"]+)"$`, func(name string) error {
 		w := httptest.NewRecorder()
-		s.app.MetricsHandler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		s.metrics.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 		if !strings.Contains(w.Body.String(), name) {
 			return fmt.Errorf("metric %s not found in:\n%s", name, grepLines(w.Body.String(), "ratelimit"))
 		}
