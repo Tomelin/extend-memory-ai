@@ -36,6 +36,7 @@ type Deps struct {
 	Logger        *slog.Logger
 	Health        HealthChecker
 	Projects      ProjectReader
+	Memories      MemoryService
 	Authenticator middleware.Authenticator
 	MaxBodyBytes  int64
 }
@@ -73,6 +74,20 @@ func NewRouter(d Deps) (*gin.Engine, error) {
 
 	v1 := r.Group("/v1", middleware.Authenticate(d.Authenticator))
 	v1.GET("/project", h.getCurrentProject)
+
+	read := middleware.RequireScope(d.Authenticator, domain.ScopeMemoriesRead)
+	write := middleware.RequireScope(d.Authenticator, domain.ScopeMemoriesWrite)
+	spacesWrite := middleware.RequireScope(d.Authenticator, domain.ScopeSpacesWrite)
+	spaces := v1.Group("/spaces/:space")
+	spaces.PUT("", spacesWrite, h.upsertSpace)
+	spaces.GET("", read, h.getSpace)
+	spaces.DELETE("", spacesWrite, h.deleteSpace)
+	spaces.POST("/memories", write, h.retainMemory)
+	spaces.GET("/memories", read, h.listMemories)
+	spaces.POST("/memories/batch", write, h.retainMemoriesBatch)
+	spaces.GET("/memories/:memory_id", read, h.getMemory)
+	spaces.DELETE("/memories/:memory_id", write, h.deleteMemory)
+	spaces.POST("/recall", read, h.recall)
 
 	return r, nil
 }

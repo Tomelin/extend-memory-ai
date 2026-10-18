@@ -96,6 +96,8 @@ tokens e relações), mas a Etapa 2b implementa somente a busca textual.
 
 ## Próxima etapa (Etapa 2b)
 
+Detalhada em [`etapa-02b-endpoints.md`](etapa-02b-endpoints.md).
+
 Implementação guiada pelos cenários de `features/api_memoria.feature`, usando as
 entidades desta etapa:
 

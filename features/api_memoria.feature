@@ -70,6 +70,39 @@ Funcionalidade: API HTTP do serviço de memória
       Então a resposta deve ter status 422
       E nenhuma das 3 memórias deve ter sido gravada
 
+  Regra: Espaços são criados explicitamente
+
+    Cenário: Criar e atualizar um espaço
+      Dado que o projeto "assistente-financeiro" possui uma chave com escopos "spaces:write memories:read"
+      Quando envio "PUT /v1/spaces/usuario-456" com o nome "Usuário 456"
+      Então a resposta deve ter status 201
+      Quando envio "PUT /v1/spaces/usuario-456" com o nome "Usuário 456 (atualizado)"
+      Então a resposta deve ter status 200
+      E o corpo deve conter "name" igual a "Usuário 456 (atualizado)"
+
+    Cenário: Remover um espaço apaga fisicamente suas memórias
+      Dado que gravei a memória "O usuário prefere relatórios em PDF" com a chave de idempotência "evento-789"
+      E que o projeto "assistente-financeiro" possui uma chave com escopos "spaces:write"
+      Quando envio "DELETE /v1/spaces/usuario-123"
+      Então a resposta deve ter status 204
+      E nenhuma memória do projeto "assistente-financeiro" deve existir no banco
+
+  Regra: Consulta e exclusão de memórias
+
+    Cenário: Listar memórias com paginação
+      Dado que existem 3 memórias gravadas no espaço "usuario-123"
+      Quando listo as memórias do espaço "usuario-123" com "limit" igual a 2
+      Então devem ser retornadas 2 memórias e um "next_cursor"
+      Quando listo a próxima página
+      Então deve ser retornada 1 memória e nenhum "next_cursor"
+
+    Cenário: Memória excluída não é mais consultada nem recuperada
+      Dado que gravei a memória "Erro ERR_CONNECTION_RESET ao exportar" com a chave de idempotência "evento-900"
+      Quando excluo essa memória
+      Então a resposta deve ter status 204
+      E consultar essa memória deve retornar status 404 e código "memory_not_found"
+      E um recall por "ERR_CONNECTION_RESET" não deve retorná-la
+
   Regra: Recuperação (recall)
 
     Cenário: Resultado informa por qual estratégia foi encontrado
@@ -78,6 +111,7 @@ Funcionalidade: API HTTP do serviço de memória
       Então a memória deve ser retornada
       E "matched_by" deve conter "lexical"
 
+    @etapa-3
     Cenário: Embeddings de modelos diferentes não são comparados
       Dado que existe uma memória com embedding do modelo "modelo-a" e sem termos em comum com a consulta
       Quando envio um recall somente com embedding do modelo "modelo-b"
@@ -95,6 +129,7 @@ Funcionalidade: API HTTP do serviço de memória
 
   Regra: Relações respeitam o espaço
 
+    @etapa-3
     Cenário: Relação entre espaços diferentes é rejeitada
       Dado que existem as memórias "A" no espaço "usuario-123" e "B" no espaço "usuario-456"
       Quando crio a relação "supports" de "A" para "B" no espaço "usuario-123"

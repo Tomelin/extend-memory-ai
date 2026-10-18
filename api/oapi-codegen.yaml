@@ -9,3 +9,12 @@ output-options:
     - getCurrentProject
     - liveness
     - readiness
+    - upsertSpace
+    - getSpace
+    - deleteSpace
+    - retainMemory
+    - retainMemoriesBatch
+    - getMemory
+    - deleteMemory
+    - recall
+    - listMemories

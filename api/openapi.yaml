@@ -425,6 +425,7 @@ components:
       name: space
       in: path
       required: true
+      x-go-name: SpaceParam
       description: '`external_id` do espaço, codificado como segmento de URL.'
       schema: { type: string, minLength: 1, maxLength: 255 }
     MemoryId:

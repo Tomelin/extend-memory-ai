@@ -24,6 +24,7 @@ import (
 	"github.com/Tomelin/extend-memory-ai/internal/observability"
 	"github.com/Tomelin/extend-memory-ai/internal/store/postgres"
 	httptransport "github.com/Tomelin/extend-memory-ai/internal/transport/http"
+	"github.com/Tomelin/extend-memory-ai/internal/usecase"
 )
 
 const schemaCheckTimeout = 10 * time.Second
@@ -97,11 +98,16 @@ func New(ctx context.Context, cfg config.API, opts Options) (_ *App, err error) 
 	if err != nil {
 		return nil, err
 	}
+	memories, err := usecase.New(store, usecase.Options{})
+	if err != nil {
+		return nil, err
+	}
 	a.Handler, err = httptransport.NewRouter(httptransport.Deps{
 		ServiceName:   cfg.ServiceName,
 		Logger:        logger,
 		Health:        store,
 		Projects:      store,
+		Memories:      memories,
 		Authenticator: authn,
 		MaxBodyBytes:  cfg.MaxBodyBytes,
 	})
