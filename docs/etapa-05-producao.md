@@ -32,16 +32,43 @@ executado em `task test:integration`.
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `base/deployment.yaml` | 2 réplicas, rolling update sem indisponibilidade, `startupProbe`/`readinessProbe` em `/readyz`, `livenessProbe` em `/healthz`, usuário não root, sistema de arquivos somente leitura |
+| `base/deployment.yaml` | init container `migrate` (`memory-admin migrate up` com o papel `memory_migrator`); 2 réplicas, rolling update sem indisponibilidade, `startupProbe`/`readinessProbe` em `/readyz`, `livenessProbe` em `/healthz`, usuário não root, sistema de arquivos somente leitura |
 | `base/service.yaml` | porta `80` → `http` e `9090` → `metrics` |
 | `base/hpa.yaml`, `base/pdb.yaml` | 2 a 10 réplicas por CPU (70%); ao menos 1 disponível |
 | `base/configmap.yaml` | configuração não secreta, incluindo a amostragem |
 | `base/purge-cronjob.yaml` | `memory-admin purge` diário às 03:30 |
 | `base/secret.example.yaml` | exemplo do Secret `memory-api`; fora do `kustomization.yaml` |
-| `jobs/migrate.yaml` | Job `memory-admin migrate up`, executado antes de cada rollout |
+| `overlays/with-bootstrap` | init container `bootstrap-extensions` antes do `migrate`, com o Secret `memory-api-bootstrap` |
 
-Uso: `kubectl apply -k deploy/kubernetes/base` (ou um overlay que troque a tag
-da imagem e os recursos), depois de criar o Secret e rodar o Job de migração.
+Uso: crie o Secret `memory-api` e aplique `kubectl apply -k deploy/kubernetes/base`
+(ou um overlay que troque a tag da imagem e os recursos).
+
+### Migrações no init container
+
+Cada pod roda `memory-admin migrate up` antes de iniciar a API. Réplicas que
+sobem juntas são serializadas pelo advisory lock do golang-migrate; sem migração
+pendente, o comando não faz nada. Só o init container recebe
+`MEMORY_MIGRATOR_DATABASE_URL`; a API continua com `memory_app`.
+
+Durante o rolling update os pods antigos convivem com o schema novo, então toda
+migração precisa ser compatível com a versão anterior (expandir num release,
+remover no seguinte).
+
+### Extensões (`overlays/with-bootstrap`)
+
+Para bancos em que nenhum DBA executou `database/bootstrap`, o overlay adiciona
+o init container `bootstrap-extensions`, que roda `memory-admin bootstrap
+extensions` (`CREATE EXTENSION IF NOT EXISTS vector, unaccent, pg_trgm`) antes
+do `migrate`:
+
+- usa o Secret separado `memory-api-bootstrap` (`MEMORY_BOOTSTRAP_DATABASE_URL`),
+  montado só nesse container (exemplo em `secret.example.yaml` do overlay);
+- `unaccent` e `pg_trgm` são *trusted* (PG 13+), mas `vector` normalmente exige
+  superusuário (`rds_superuser` no RDS, `cloudsqlsuperuser` no Cloud SQL);
+- não cria papéis: `memory_app`, `memory_migrator` e `memory_admin` continuam
+  sendo criados uma vez com `database/bootstrap/002-roles.sql`.
+
+Uso: `kubectl apply -k deploy/kubernetes/overlays/with-bootstrap`.
 
 ## Amostragem de traces
 
