@@ -25,8 +25,9 @@ Gherkin, no idioma português (`# language: pt`). A especificação inicial est�
 - possibilitar repetição segura de uma escrita por chave de idempotência.
 
 Ficam fora deste primeiro corte: extração de fatos com LLM, geração de
-embeddings, reranking, consolidação de observações, autenticação HTTP e
-particionamento físico por projeto.
+embeddings, reranking, consolidação de observações e particionamento físico por
+projeto. A autenticação HTTP é definida na
+[arquitetura da API](docs/arquitetura-api.md#autenticação-e-autorização).
 
 ## Modelo de dados
 
@@ -200,6 +201,9 @@ A arquitetura da API HTTP (Go) que expõe `retain` e `recall` às aplicações
 clientes está em [`docs/arquitetura-api.md`](docs/arquitetura-api.md). O
 contrato público está em [`api/openapi.yaml`](api/openapi.yaml) e os critérios de
 aceitação em [`features/api_memoria.feature`](features/api_memoria.feature).
+
+O plano de implementação começa pela
+[Etapa 1 — Fundação da API](docs/etapa-01-fundacao.md).
 
 ## Princípios para as próximas atividades
 
