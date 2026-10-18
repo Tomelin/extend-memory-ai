@@ -4,8 +4,46 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for MemoryType.
+const (
+	Context     MemoryType = "context"
+	Decision    MemoryType = "decision"
+	Experience  MemoryType = "experience"
+	Fact        MemoryType = "fact"
+	Observation MemoryType = "observation"
+	Preference  MemoryType = "preference"
+	Summary     MemoryType = "summary"
+)
+
+// Valid indicates whether the value is a known member of the MemoryType enum.
+func (e MemoryType) Valid() bool {
+	switch e {
+	case Context:
+		return true
+	case Decision:
+		return true
+	case Experience:
+		return true
+	case Fact:
+		return true
+	case Observation:
+		return true
+	case Preference:
+		return true
+	case Summary:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for ProblemCode.
 const (
@@ -61,6 +99,24 @@ func (e ProblemCode) Valid() bool {
 	}
 }
 
+// Defines values for RecallItemMatchedBy.
+const (
+	Lexical  RecallItemMatchedBy = "lexical"
+	Semantic RecallItemMatchedBy = "semantic"
+)
+
+// Valid indicates whether the value is a known member of the RecallItemMatchedBy enum.
+func (e RecallItemMatchedBy) Valid() bool {
+	switch e {
+	case Lexical:
+		return true
+	case Semantic:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RelationType.
 const (
 	Contradicts RelationType = "contradicts"
@@ -88,6 +144,110 @@ func (e RelationType) Valid() bool {
 	}
 }
 
+// Defines values for SpaceKind.
+const (
+	Agent   SpaceKind = "agent"
+	Custom  SpaceKind = "custom"
+	Session SpaceKind = "session"
+	Team    SpaceKind = "team"
+	User    SpaceKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the SpaceKind enum.
+func (e SpaceKind) Valid() bool {
+	switch e {
+	case Agent:
+		return true
+	case Custom:
+		return true
+	case Session:
+		return true
+	case Team:
+		return true
+	case User:
+		return true
+	default:
+		return false
+	}
+}
+
+// Embedding defines model for Embedding.
+type Embedding struct {
+	// Model Identificador do modelo que gerou o vetor.
+	Model  string    `json:"model"`
+	Vector []float32 `json:"vector"`
+}
+
+// Link defines model for Link.
+type Link struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata       Metadata           `json:"metadata"`
+	RelationType   RelationType       `json:"relation_type"`
+	SourceMemoryId openapi_types.UUID `json:"source_memory_id"`
+	TargetMemoryId openapi_types.UUID `json:"target_memory_id"`
+	Weight         float32            `json:"weight"`
+}
+
+// Memory defines model for Memory.
+type Memory struct {
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EmbeddingModel O vetor não é devolvido por padrão, apenas o modelo.
+	EmbeddingModel *string            `json:"embedding_model,omitempty"`
+	ExpiresAt      *time.Time         `json:"expires_at,omitempty"`
+	Id             openapi_types.UUID `json:"id"`
+	IdempotencyKey *string            `json:"idempotency_key,omitempty"`
+	Importance     float32            `json:"importance"`
+	MemoryType     MemoryType         `json:"memory_type"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata   Metadata  `json:"metadata"`
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Source Origem da memória, para rastreabilidade.
+	Source          Source    `json:"source"`
+	SpaceExternalId string    `json:"space_external_id"`
+	Summary         *string   `json:"summary,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// MemoryInput Examples: {"content":"O usuário prefere relatórios em PDF","idempotency_key":"evento-456","memory_type":"preference","occurred_at":"2026-10-18T12:00:00Z","source":{"ref":"conversa-789","type":"conversation"}}
+type MemoryInput struct {
+	Content   string     `json:"content"`
+	Embedding *Embedding `json:"embedding,omitempty"`
+
+	// ExpiresAt Deve ser posterior a `occurred_at`.
+	ExpiresAt      *time.Time  `json:"expires_at,omitempty"`
+	IdempotencyKey *string     `json:"idempotency_key,omitempty"`
+	Importance     *float32    `json:"importance,omitempty"`
+	MemoryType     *MemoryType `json:"memory_type,omitempty"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata *Metadata `json:"metadata,omitempty"`
+
+	// OccurredAt Quando o fato ocorreu. Padrão, o instante da gravação.
+	OccurredAt *time.Time `json:"occurred_at,omitempty"`
+
+	// Source Origem da memória, para rastreabilidade.
+	Source  *Source `json:"source,omitempty"`
+	Summary *string `json:"summary,omitempty"`
+}
+
+// MemoryPage defines model for MemoryPage.
+type MemoryPage struct {
+	Items      []Memory `json:"items"`
+	NextCursor *string  `json:"next_cursor,omitempty"`
+}
+
+// MemoryType defines model for MemoryType.
+type MemoryType string
+
+// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+type Metadata map[string]interface{}
+
 // Problem RFC 9457 com extensões `code`, `request_id` e `errors`.
 type Problem struct {
 	Code   ProblemCode `json:"code"`
@@ -113,17 +273,352 @@ type Project struct {
 	Slug        string             `json:"slug"`
 }
 
+// RecallFilters defines model for RecallFilters.
+type RecallFilters struct {
+	MemoryTypes *[]MemoryType `json:"memory_types,omitempty"`
+
+	// Metadata Filtro por contenção (`metadata @> filtro`).
+	Metadata       *Metadata  `json:"metadata,omitempty"`
+	OccurredAfter  *time.Time `json:"occurred_after,omitempty"`
+	OccurredBefore *time.Time `json:"occurred_before,omitempty"`
+	SourceRef      *string    `json:"source_ref,omitempty"`
+	SourceType     *string    `json:"source_type,omitempty"`
+}
+
+// RecallItem defines model for RecallItem.
+type RecallItem struct {
+	LexicalRank *int                  `json:"lexical_rank,omitempty"`
+	Links       *[]Link               `json:"links,omitempty"`
+	MatchedBy   []RecallItemMatchedBy `json:"matched_by"`
+	Memory      Memory                `json:"memory"`
+
+	// Score Score RRF; comparável apenas dentro da mesma resposta.
+	Score        float32 `json:"score"`
+	SemanticRank *int    `json:"semantic_rank,omitempty"`
+}
+
+// RecallItemMatchedBy defines model for RecallItem.MatchedBy.
+type RecallItemMatchedBy string
+
+// RecallRequest defines model for RecallRequest.
+type RecallRequest struct {
+	// CandidateLimit Candidatos por estratégia antes da fusão.
+	CandidateLimit *int           `json:"candidate_limit,omitempty"`
+	Filters        *RecallFilters `json:"filters,omitempty"`
+	IncludeLinks   *bool          `json:"include_links,omitempty"`
+	Limit          *int           `json:"limit,omitempty"`
+
+	// MaxTokens Orçamento de tokens do conteúdo retornado.
+	MaxTokens      *int       `json:"max_tokens,omitempty"`
+	Query          *string    `json:"query,omitempty"`
+	QueryEmbedding *Embedding `json:"query_embedding,omitempty"`
+	union          json.RawMessage
+}
+
+// RecallRequest0 defines model for RecallRequest.0.
+type RecallRequest0 = interface{}
+
+// RecallRequest1 defines model for RecallRequest.1.
+type RecallRequest1 = interface{}
+
+// RecallResponse defines model for RecallResponse.
+type RecallResponse struct {
+	Items         []RecallItem `json:"items"`
+	TokenEstimate int          `json:"token_estimate"`
+
+	// Truncated `true` quando resultados foram descartados pelo orçamento de tokens.
+	Truncated bool `json:"truncated"`
+}
+
 // RelationType defines model for RelationType.
 type RelationType string
+
+// RetainResult defines model for RetainResult.
+type RetainResult struct {
+	// Created `false` quando a requisição foi uma repetição idempotente.
+	Created bool   `json:"created"`
+	Memory  Memory `json:"memory"`
+}
+
+// Source Origem da memória, para rastreabilidade.
+type Source struct {
+	// Ref Examples: conversa-789
+	Ref *string `json:"ref,omitempty"`
+
+	// Type Examples: conversation
+	Type *string `json:"type,omitempty"`
+}
+
+// Space defines model for Space.
+type Space struct {
+	CreatedAt  time.Time          `json:"created_at"`
+	ExternalId string             `json:"external_id"`
+	Id         openapi_types.UUID `json:"id"`
+	Kind       SpaceKind          `json:"kind"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata  Metadata  `json:"metadata"`
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SpaceInput defines model for SpaceInput.
+type SpaceInput struct {
+	Kind *SpaceKind `json:"kind,omitempty"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata *Metadata `json:"metadata,omitempty"`
+	Name     string    `json:"name"`
+}
+
+// SpaceKind defines model for SpaceKind.
+type SpaceKind string
+
+// Cursor defines model for Cursor.
+type Cursor = string
+
+// Limit defines model for Limit.
+type Limit = int
 
 // MemoryId defines model for MemoryId.
 type MemoryId = openapi_types.UUID
 
-// Space defines model for Space.
-type Space = string
+// SpaceParam defines model for Space.
+type SpaceParam = string
+
+// Conflict RFC 9457 com extensões `code`, `request_id` e `errors`.
+type Conflict = Problem
+
+// InsufficientScope RFC 9457 com extensões `code`, `request_id` e `errors`.
+type InsufficientScope = Problem
+
+// MalformedRequest RFC 9457 com extensões `code`, `request_id` e `errors`.
+type MalformedRequest = Problem
+
+// NotFound RFC 9457 com extensões `code`, `request_id` e `errors`.
+type NotFound = Problem
+
+// PayloadTooLarge RFC 9457 com extensões `code`, `request_id` e `errors`.
+type PayloadTooLarge = Problem
+
+// RateLimited RFC 9457 com extensões `code`, `request_id` e `errors`.
+type RateLimited = Problem
 
 // Unauthenticated RFC 9457 com extensões `code`, `request_id` e `errors`.
 type Unauthenticated = Problem
 
 // Unavailable RFC 9457 com extensões `code`, `request_id` e `errors`.
 type Unavailable = Problem
+
+// ValidationFailed RFC 9457 com extensões `code`, `request_id` e `errors`.
+type ValidationFailed = Problem
+
+// ListMemoriesParams defines parameters for ListMemories.
+type ListMemoriesParams struct {
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Cursor opaco retornado em `next_cursor`.
+	Cursor         *Cursor       `form:"cursor,omitempty" json:"cursor,omitempty"`
+	MemoryType     *[]MemoryType `form:"memory_type,omitempty" json:"memory_type,omitempty"`
+	SourceType     *string       `form:"source_type,omitempty" json:"source_type,omitempty"`
+	SourceRef      *string       `form:"source_ref,omitempty" json:"source_ref,omitempty"`
+	OccurredAfter  *time.Time    `form:"occurred_after,omitempty" json:"occurred_after,omitempty"`
+	OccurredBefore *time.Time    `form:"occurred_before,omitempty" json:"occurred_before,omitempty"`
+}
+
+// RetainMemoriesBatchJSONBody defines parameters for RetainMemoriesBatch.
+type RetainMemoriesBatchJSONBody struct {
+	Items []MemoryInput `json:"items"`
+}
+
+// UpsertSpaceJSONRequestBody defines body for UpsertSpace for application/json ContentType.
+type UpsertSpaceJSONRequestBody = SpaceInput
+
+// RetainMemoryJSONRequestBody defines body for RetainMemory for application/json ContentType.
+type RetainMemoryJSONRequestBody = MemoryInput
+
+// RetainMemoriesBatchJSONRequestBody defines body for RetainMemoriesBatch for application/json ContentType.
+type RetainMemoriesBatchJSONRequestBody RetainMemoriesBatchJSONBody
+
+// RecallJSONRequestBody defines body for Recall for application/json ContentType.
+type RecallJSONRequestBody = RecallRequest
+
+// AsRecallRequest0 returns the union data inside the RecallRequest as a RecallRequest0
+func (t RecallRequest) AsRecallRequest0() (RecallRequest0, error) {
+	var body RecallRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRecallRequest0 overwrites any union data inside the RecallRequest as the provided RecallRequest0
+func (t *RecallRequest) FromRecallRequest0(v RecallRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRecallRequest0 performs a merge with any union data inside the RecallRequest, using the provided RecallRequest0
+func (t *RecallRequest) MergeRecallRequest0(v RecallRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRecallRequest1 returns the union data inside the RecallRequest as a RecallRequest1
+func (t RecallRequest) AsRecallRequest1() (RecallRequest1, error) {
+	var body RecallRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRecallRequest1 overwrites any union data inside the RecallRequest as the provided RecallRequest1
+func (t *RecallRequest) FromRecallRequest1(v RecallRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRecallRequest1 performs a merge with any union data inside the RecallRequest, using the provided RecallRequest1
+func (t *RecallRequest) MergeRecallRequest1(v RecallRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RecallRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.CandidateLimit != nil {
+		object["candidate_limit"], err = json.Marshal(t.CandidateLimit)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'candidate_limit': %w", err)
+		}
+	}
+
+	if t.Filters != nil {
+		object["filters"], err = json.Marshal(t.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'filters': %w", err)
+		}
+	}
+
+	if t.IncludeLinks != nil {
+		object["include_links"], err = json.Marshal(t.IncludeLinks)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'include_links': %w", err)
+		}
+	}
+
+	if t.Limit != nil {
+		object["limit"], err = json.Marshal(t.Limit)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'limit': %w", err)
+		}
+	}
+
+	if t.MaxTokens != nil {
+		object["max_tokens"], err = json.Marshal(t.MaxTokens)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'max_tokens': %w", err)
+		}
+	}
+
+	if t.Query != nil {
+		object["query"], err = json.Marshal(t.Query)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'query': %w", err)
+		}
+	}
+
+	if t.QueryEmbedding != nil {
+		object["query_embedding"], err = json.Marshal(t.QueryEmbedding)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'query_embedding': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *RecallRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["candidate_limit"]; found {
+		err = json.Unmarshal(raw, &t.CandidateLimit)
+		if err != nil {
+			return fmt.Errorf("error reading 'candidate_limit': %w", err)
+		}
+	}
+
+	if raw, found := object["filters"]; found {
+		err = json.Unmarshal(raw, &t.Filters)
+		if err != nil {
+			return fmt.Errorf("error reading 'filters': %w", err)
+		}
+	}
+
+	if raw, found := object["include_links"]; found {
+		err = json.Unmarshal(raw, &t.IncludeLinks)
+		if err != nil {
+			return fmt.Errorf("error reading 'include_links': %w", err)
+		}
+	}
+
+	if raw, found := object["limit"]; found {
+		err = json.Unmarshal(raw, &t.Limit)
+		if err != nil {
+			return fmt.Errorf("error reading 'limit': %w", err)
+		}
+	}
+
+	if raw, found := object["max_tokens"]; found {
+		err = json.Unmarshal(raw, &t.MaxTokens)
+		if err != nil {
+			return fmt.Errorf("error reading 'max_tokens': %w", err)
+		}
+	}
+
+	if raw, found := object["query"]; found {
+		err = json.Unmarshal(raw, &t.Query)
+		if err != nil {
+			return fmt.Errorf("error reading 'query': %w", err)
+		}
+	}
+
+	if raw, found := object["query_embedding"]; found {
+		err = json.Unmarshal(raw, &t.QueryEmbedding)
+		if err != nil {
+			return fmt.Errorf("error reading 'query_embedding': %w", err)
+		}
+	}
+
+	return err
+}
