@@ -1,7 +1,7 @@
 //go:build integration
 
-// Package acceptance runs features/fundacao.feature with godog against the
-// API started in-process and a PostgreSQL container.
+// Package acceptance runs the features with godog against the API started
+// in-process and a PostgreSQL container.
 package acceptance
 
 import (
@@ -131,18 +131,31 @@ func TestFeatures(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = e.app.Close(context.Background()) })
 
-	suite := godog.TestSuite{
-		Name:                "fundacao",
-		ScenarioInitializer: func(sc *godog.ScenarioContext) { initScenario(sc, e) },
-		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/fundacao.feature"},
-			Strict:   true,
-			TestingT: t,
-		},
+	suites := []struct {
+		name, tags string
+		init       func(*godog.ScenarioContext, *env)
+	}{
+		{name: "fundacao", init: initScenario},
+		// Scenarios tagged @etapa-3 depend on semantic search and links.
+		{name: "api_memoria", tags: "~@etapa-3", init: initAPIScenario},
 	}
-	if suite.Run() != 0 {
-		t.Fatal("acceptance scenarios failed")
+	for _, s := range suites {
+		t.Run(s.name, func(t *testing.T) {
+			suite := godog.TestSuite{
+				Name:                s.name,
+				ScenarioInitializer: func(sc *godog.ScenarioContext) { s.init(sc, e) },
+				Options: &godog.Options{
+					Format:   "pretty",
+					Paths:    []string{"../../features/" + s.name + ".feature"},
+					Tags:     s.tags,
+					Strict:   true,
+					TestingT: t,
+				},
+			}
+			if suite.Run() != 0 {
+				t.Fatal("acceptance scenarios failed")
+			}
+		})
 	}
 }
 
