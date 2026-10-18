@@ -35,6 +35,8 @@ type Store interface {
 	CreateLink(ctx context.Context, projectID uuid.UUID, externalID string, l domain.NewLink) (domain.Link, error)
 	ListLinks(ctx context.Context, projectID uuid.UUID, externalID string, memoryID uuid.UUID, f domain.LinkFilter) ([]domain.Link, error)
 	DeleteLink(ctx context.Context, projectID uuid.UUID, externalID string, source, target uuid.UUID, relation domain.RelationType) error
+	ListSpaces(ctx context.Context, projectID uuid.UUID, q domain.ListSpacesQuery) (domain.SpacePage, error)
+	UpdateMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID, apply func(domain.Memory) (domain.MemoryUpdate, error)) (domain.Memory, error)
 }
 
 // TokenCounter estimates how many tokens a text uses.
@@ -160,6 +162,24 @@ func (s *Service) recordRetain(ctx context.Context, results []domain.RetainResul
 			attribute.String("memory_type", string(r.Memory.MemoryType)),
 		))
 	}
+}
+
+// ListSpaces returns one page of the project's spaces.
+func (s *Service) ListSpaces(ctx context.Context, projectID uuid.UUID, in domain.ListSpacesInput) (page domain.SpacePage, err error) {
+	ctx, span := s.tracer.Start(ctx, "app.ListSpaces")
+	defer func() { end(span, err) }()
+	q, err := in.Prepare()
+	if err != nil {
+		return domain.SpacePage{}, err
+	}
+	return s.store.ListSpaces(ctx, projectID, q)
+}
+
+// UpdateMemory applies a merge patch to an active memory.
+func (s *Service) UpdateMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID, p domain.MemoryPatch) (m domain.Memory, err error) {
+	ctx, span := s.tracer.Start(ctx, "app.UpdateMemory")
+	defer func() { end(span, err) }()
+	return s.store.UpdateMemory(ctx, projectID, externalID, id, p.Apply)
 }
 
 // GetMemory returns an active memory.
