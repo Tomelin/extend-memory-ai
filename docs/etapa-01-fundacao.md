@@ -197,16 +197,16 @@ Ambiente local de observabilidade, adicionado ao `docker-compose.yaml`:
 
 | Serviço | Imagem | Uso |
 | --- | --- | --- |
-| `jaeger` | `jaegertracing/all-in-one` | recebe OTLP em `4317` e mostra traces em `16686` |
 | `prometheus` | `prom/prometheus` | coleta `/metrics` da API; UI em `9091` |
 
 A API roda no host durante o desenvolvimento; o Prometheus alcança o host via
 `host.docker.internal` (no Linux, `extra_hosts: ["host.docker.internal:host-gateway"]`).
-Um coletor OpenTelemetry e o Grafana podem ser adicionados depois, sem mudar a
-aplicação, porque ela só conhece OTLP e o formato Prometheus.
+Os traces são enviados diretamente ao endpoint OTLP do Grafana Cloud. Endpoint,
+protocolo e autenticação são definidos pelas variáveis padronizadas
+`OTEL_EXPORTER_OTLP_*`; nenhuma credencial fica no Compose ou no repositório.
 
 **Pronto quando:** após uma requisição a `GET /v1/project`, o trace com spans
-HTTP, autenticação e banco aparece no Jaeger e
+HTTP, autenticação e banco aparece no Grafana Cloud e
 `http_server_request_duration_seconds` aparece no Prometheus com
 `http_route="/v1/project"`.
 
@@ -256,22 +256,21 @@ Cada PR é pequeno, revisável e deixa a `main` funcional:
 2. **Esqueleto Go:** `go.mod`, `Taskfile.yml`, `sqlc.yaml`, queries, `store/postgres`,
    `memory-admin` (migrate, project, key).
 3. **Servidor e observabilidade:** gin, middlewares, health, observabilidade,
-   autenticação, `GET /v1/project`, Jaeger e Prometheus no compose.
+   autenticação, `GET /v1/project`, Grafana Cloud via OTLP e Prometheus no compose.
 4. **CI:** workflow, testes de integração e `godog` com `fundacao.feature`.
 
 ## Definição de pronto da etapa
 
 - todos os cenários de `features/fundacao.feature` passam no CI;
 - um desenvolvedor novo executa `task up && task migrate:up`, cria projeto e
-  chave pela CLI, chama `GET /v1/project` e vê o trace e as métricas localmente,
-  seguindo apenas o README;
+  chave pela CLI, chama `GET /v1/project`, vê o trace no Grafana Cloud e as
+  métricas localmente, seguindo apenas o README;
 - o README descreve esse fluxo.
 
 ## Pontos a decidir durante a etapa
 
 - configuração do `golangci-lint` (conjunto de linters);
 - ferramenta de lint do OpenAPI no CI (ex.: Redocly CLI ou Spectral);
-- Jaeger ou Grafana Tempo como visualizador local de traces;
 - política de amostragem padrão em produção.
 
 ## Próxima etapa (Etapa 2)

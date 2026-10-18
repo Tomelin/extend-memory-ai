@@ -8,10 +8,10 @@ import (
 	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -24,10 +24,7 @@ type Config struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    string
-	// TracesExporter is "otlp" (endpoint and options from the standard
-	// OTEL_EXPORTER_OTLP_* variables) or "none".
-	TracesExporter string
-	// SpanExporter, when set, replaces TracesExporter and exports spans
+	// SpanExporter, when set, replaces the environment-configured exporter
 	// synchronously. Intended for tests.
 	SpanExporter sdktrace.SpanExporter
 	// Registerer receives the Prometheus collector for all metrics.
@@ -58,13 +55,12 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithReader(promExporter))
 
 	tpOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
-	switch {
-	case cfg.SpanExporter != nil:
+	if cfg.SpanExporter != nil {
 		tpOpts = append(tpOpts, sdktrace.WithSyncer(cfg.SpanExporter))
-	case cfg.TracesExporter == "otlp":
-		exp, err := otlptracegrpc.New(ctx)
+	} else {
+		exp, err := autoexport.NewSpanExporter(ctx)
 		if err != nil {
-			return nil, errors.Join(fmt.Errorf("otlp exporter: %w", err), mp.Shutdown(ctx))
+			return nil, errors.Join(fmt.Errorf("trace exporter: %w", err), mp.Shutdown(ctx))
 		}
 		tpOpts = append(tpOpts, sdktrace.WithBatcher(exp))
 	}

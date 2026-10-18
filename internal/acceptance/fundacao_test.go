@@ -118,7 +118,6 @@ func TestFeatures(t *testing.T) {
 			ShutdownTimeout:     5 * time.Second,
 			ServiceName:         "memory-api",
 			ServiceVersion:      "test",
-			TracesExporter:      "none",
 		},
 	}
 	e.adminDB, err = pgxpool.New(ctx, db.AdminURL)

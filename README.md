@@ -186,19 +186,33 @@ Para regenerar código e rodar o lint: `task tools` instala sqlc, oapi-codegen e
 golangci-lint nas versões fixadas.
 
 ```bash
-task up            # PostgreSQL (com bootstrap), Jaeger e Prometheus
+task up            # PostgreSQL (com bootstrap) e Prometheus
 task migrate:up    # aplica as migrações como memory_migrator
 
 task admin -- project create --slug assistente --name "Assistente"
 TOKEN=$(task admin -- key create --project assistente --name local --scopes memories:read,memories:write)
 
+# Copie endpoint e cabeçalho da integração OpenTelemetry do Grafana Cloud.
+export OTEL_SERVICE_NAME=memory-api
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=development,service.namespace=extend-memory-ai"
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-<regiao>.grafana.net/otlp"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20<credencial-base64>"
+export OTEL_TRACES_SAMPLER=parentbased_always_on
+
 task run           # memory-api em :8080, métricas em :9090/metrics
 curl -H "Authorization: Bearer $TOKEN" localhost:8080/v1/project
 ```
 
-A chave completa é exibida apenas uma vez, na emissão. Depois da chamada:
+A chave completa é exibida apenas uma vez, na emissão. Os valores reais de
+`OTEL_EXPORTER_OTLP_ENDPOINT` e `OTEL_EXPORTER_OTLP_HEADERS` devem vir do card
+OpenTelemetry da sua stack no Grafana Cloud e nunca devem ser versionados.
+Consulte a [especificação das variáveis de ambiente do OpenTelemetry](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)
+e o guia [Send data to the Grafana Cloud OTLP endpoint](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/).
+Depois da chamada:
 
-- traces no Jaeger: <http://localhost:16686> (serviço `memory-api`);
+- traces no Grafana Cloud, filtrados pelo serviço `memory-api`;
 - métricas no Prometheus: <http://localhost:9091>, por exemplo
   `http_server_request_duration_seconds_count{http_route="/v1/project"}`.
 

@@ -60,7 +60,6 @@ func New(ctx context.Context, cfg config.API, opts Options) (_ *App, err error) 
 		ServiceName:    cfg.ServiceName,
 		ServiceVersion: cfg.ServiceVersion,
 		Environment:    cfg.Environment,
-		TracesExporter: cfg.TracesExporter,
 		SpanExporter:   opts.SpanExporter,
 		Registerer:     registry,
 	})

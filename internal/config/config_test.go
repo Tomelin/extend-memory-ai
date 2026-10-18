@@ -22,7 +22,7 @@ func TestLoadAPIDefaults(t *testing.T) {
 	if cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9090" || cfg.DBMaxConns != 20 ||
 		cfg.EmbeddingDimensions != 1536 || cfg.KeyCacheTTL != time.Minute ||
 		cfg.MaxBodyBytes != 1<<20 || cfg.LogLevel != slog.LevelInfo || cfg.LogFormat != "json" ||
-		cfg.ServiceName != "memory-api" || cfg.TracesExporter != "otlp" {
+		cfg.ServiceName != "memory-api" {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 }

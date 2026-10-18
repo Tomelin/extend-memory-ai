@@ -50,7 +50,7 @@ flowchart LR
     EMB[(Provedor de embeddings<br/>do cliente)]
     PG[(PostgreSQL 17<br/>pgvector + FTS + RLS)]
     PROM[Prometheus<br/>scrape /metrics]
-    OTLP[Coletor OTLP<br/>traces]
+    OTLP[Grafana Cloud<br/>endpoint OTLP]
 
     A1 -- HTTPS + API key --> API
     A2 -- HTTPS + API key --> API
@@ -59,7 +59,7 @@ flowchart LR
     API -- pgx, transação por requisição --> PG
     ADM -- papel administrativo --> PG
     PROM -- scrape --> API
-    API -- spans OTLP --> OTLP
+    API -- spans OTLP/HTTP --> OTLP
 ```
 
 O cliente continua responsável por extrair fatos e calcular embeddings. A API
@@ -699,7 +699,7 @@ flowchart LR
     A --> MP
     D --> MP
     MP -- exportador Prometheus --> M[GET /metrics<br/>porta interna]
-    TP -- OTLP gRPC --> C[Coletor OpenTelemetry]
+    TP -- OTLP/HTTP --> C[Grafana Cloud]
     SL --> L[stdout JSON]
     P[Prometheus] -- scrape --> M
 ```
@@ -711,8 +711,10 @@ flowchart LR
 - `MeterProvider` com `go.opentelemetry.io/otel/exporters/prometheus`, em um
   registro próprio servido por `promhttp` em `MEMORY_METRICS_ADDR` (porta
   separada da API pública);
-- `TracerProvider` com exportador OTLP (`otlptracegrpc`) e amostragem
-  `parentbased_traceidratio`, configurável por `OTEL_TRACES_SAMPLER` e
+- `TracerProvider` com `autoexport.NewSpanExporter`, que seleciona e configura o
+  exportador pelas variáveis OpenTelemetry; para o Grafana Cloud usamos
+  OTLP/HTTP com protobuf, endpoint HTTPS e cabeçalho de autenticação;
+- amostragem configurável por `OTEL_TRACES_SAMPLER` e
   `OTEL_TRACES_SAMPLER_ARG`;
 - propagadores W3C `tracecontext` e `baggage`, para continuar o trace das
   aplicações clientes;
@@ -788,7 +790,11 @@ Cardinalidade e privacidade:
 | `MEMORY_LOG_FORMAT` | `json` | `json` ou `text` |
 | `GIN_MODE` | `release` | modo do gin |
 | `OTEL_SERVICE_NAME` | `memory-api` | nome do serviço em traces e métricas |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel:4317` | destino dos traces |
+| `OTEL_RESOURCE_ATTRIBUTES` | `deployment.environment.name=production,service.namespace=extend-memory-ai` | atributos do recurso separados por vírgula |
+| `OTEL_TRACES_EXPORTER` | `otlp` | exporta traces via OTLP; use `none` para desabilitar |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | transporte aceito pelo endpoint do Grafana Cloud |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://...grafana.net/otlp` | endpoint base copiado da stack no Grafana Cloud |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Basic%20...` | autenticação copiada da stack; segredo não versionado |
 | `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | estratégia de amostragem |
 | `OTEL_TRACES_SAMPLER_ARG` | `0.1` | fração amostrada |
 

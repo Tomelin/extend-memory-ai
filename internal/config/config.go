@@ -28,7 +28,6 @@ type API struct {
 	ShutdownTimeout     time.Duration
 	ServiceName         string
 	ServiceVersion      string
-	TracesExporter      string
 }
 
 // LoadAPI reads the API configuration, applying defaults.
@@ -48,7 +47,6 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 		ShutdownTimeout:     l.duration("MEMORY_SHUTDOWN_TIMEOUT", 15*time.Second),
 		ServiceName:         l.str("OTEL_SERVICE_NAME", "memory-api"),
 		ServiceVersion:      "dev",
-		TracesExporter:      l.str("OTEL_TRACES_EXPORTER", "otlp"),
 	}
 	if err := cfg.LogLevel.UnmarshalText([]byte(l.str("MEMORY_LOG_LEVEL", "info"))); err != nil {
 		l.errs = append(l.errs, fmt.Errorf("MEMORY_LOG_LEVEL: %w", err))
@@ -58,9 +56,6 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 	}
 	if cfg.LogFormat != "json" && cfg.LogFormat != "text" {
 		l.errs = append(l.errs, fmt.Errorf("MEMORY_LOG_FORMAT: must be json or text, got %q", cfg.LogFormat))
-	}
-	if cfg.TracesExporter != "otlp" && cfg.TracesExporter != "none" {
-		l.errs = append(l.errs, fmt.Errorf("OTEL_TRACES_EXPORTER: must be otlp or none, got %q", cfg.TracesExporter))
 	}
 	return cfg, errors.Join(l.errs...)
 }

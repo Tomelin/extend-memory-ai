@@ -84,7 +84,7 @@ tasks:
       - docker build -t extend-memory-ai/memory-api:dev .
 
   up:
-    desc: Sobe PostgreSQL, Jaeger e Prometheus
+    desc: Sobe PostgreSQL e Prometheus
     cmds:
       - docker compose up -d --wait
 
@@ -109,12 +109,10 @@ tasks:
       - go run ./cmd/memory-admin {{.CLI_ARGS}}
 
   run:
-    desc: Executa o memory-api localmente, enviando traces ao Jaeger
+    desc: Executa o memory-api; OTEL_* configura a exportação para o Grafana Cloud
     env:
       MEMORY_DATABASE_URL: "{{.APP_URL}}"
       MEMORY_LOG_FORMAT: text
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
-      OTEL_TRACES_SAMPLER: parentbased_always_on
       GIN_MODE: debug
     cmds:
       - go run ./cmd/memory-api
