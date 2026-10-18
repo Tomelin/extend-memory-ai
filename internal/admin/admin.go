@@ -29,6 +29,7 @@ const usage = `uso: memory-admin <comando>
   key create --project <slug> --name <nome> --scopes memories:read,memories:write [--expires-in 720h]
   key revoke --prefix <prefixo>
   key list --project <slug>
+  purge [--deleted-retention 720h] [--batch 1000]
 
 migrate usa MEMORY_MIGRATOR_DATABASE_URL; os demais comandos usam MEMORY_ADMIN_DATABASE_URL.`
 
@@ -39,13 +40,15 @@ var ErrUsage = errors.New("comando inválido")
 // for the operator go to stderr.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, cfg config.Admin) error {
 	c := cli{stdout: stdout, stderr: stderr, cfg: cfg}
-	if len(args) < 2 {
+	if len(args) < 2 && (len(args) == 0 || args[0] != "purge") {
 		fmt.Fprintln(stderr, usage)
 		return ErrUsage
 	}
 	switch args[0] {
 	case "migrate":
 		return c.migrate(args[1], args[2:])
+	case "purge":
+		return c.purge(ctx, args[1:])
 	case "project":
 		if args[1] == "create" {
 			return c.projectCreate(ctx, args[2:])
@@ -307,4 +310,50 @@ func (c cli) keyList(ctx context.Context, args []string) error {
 			status, r.CreatedAt.UTC().Format(time.RFC3339), lastUsed)
 	}
 	return tw.Flush()
+}
+
+// purge physically removes expired memories and memories soft-deleted more
+// than --deleted-retention ago, in batches, across all projects.
+func (c cli) purge(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("purge", flag.ContinueOnError)
+	fs.SetOutput(c.stderr)
+	retention := fs.Duration("deleted-retention", 30*24*time.Hour, "tempo que uma memória excluída é mantida")
+	batch := fs.Int("batch", 1000, "linhas removidas por comando DELETE")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *retention < 0 || *batch < 1 || *batch > 100000 {
+		return fmt.Errorf("%w: --deleted-retention >= 0 e --batch entre 1 e 100000", ErrUsage)
+	}
+	q, closeFn, err := c.queries(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
+
+	size := int32(*batch) //nolint:gosec // bounded above
+	expired, err := purgeLoop(func() (int64, error) { return q.PurgeExpiredMemories(ctx, size) })
+	if err != nil {
+		return fmt.Errorf("remover memórias expiradas: %w", postgres.MapError(err))
+	}
+	before := time.Now().Add(-*retention)
+	deleted, err := purgeLoop(func() (int64, error) {
+		return q.PurgeDeletedMemories(ctx, sqlcdb.PurgeDeletedMemoriesParams{DeletedBefore: before, BatchSize: size})
+	})
+	if err != nil {
+		return fmt.Errorf("remover memórias excluídas: %w", postgres.MapError(err))
+	}
+	fmt.Fprintf(c.stdout, "memórias expiradas removidas: %d\nmemórias excluídas removidas: %d\n", expired, deleted)
+	return nil
+}
+
+func purgeLoop(step func() (int64, error)) (int64, error) {
+	var total int64
+	for {
+		n, err := step()
+		total += n
+		if err != nil || n == 0 {
+			return total, err
+		}
+	}
 }

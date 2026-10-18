@@ -41,6 +41,10 @@ type Querier interface {
 	// Keyset pagination on external_id.
 	ListSpaces(ctx context.Context, arg ListSpacesParams) ([]MemorySpace, error)
 	Ping(ctx context.Context) (int32, error)
+	PurgeDeletedMemories(ctx context.Context, arg PurgeDeletedMemoriesParams) (int64, error)
+	// Run by memory-admin (BYPASSRLS) across all projects, in batches to keep
+	// locks short. Links go with ON DELETE CASCADE.
+	PurgeExpiredMemories(ctx context.Context, batchSize int32) (int64, error)
 	// Full-text candidates ranked by ts_rank_cd, with the optional recall filters.
 	RecallLexical(ctx context.Context, arg RecallLexicalParams) ([]RecallLexicalRow, error)
 	// Exact nearest neighbours by cosine distance, restricted to the query's
