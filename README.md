@@ -242,7 +242,8 @@ O plano de implementação começa pela
 [Etapa 2a — Entidades de domínio](docs/etapa-02a-entidades.md) e pela
 [Etapa 2b — Endpoints](docs/etapa-02b-endpoints.md) e pela
 [Etapa 3 — Busca híbrida e relações](docs/etapa-03-busca-hibrida.md) e pela
-[Etapa 4 — Completar o contrato](docs/etapa-04-contrato.md).
+[Etapa 4 — Completar o contrato](docs/etapa-04-contrato.md) e pela
+[Etapa 5 — Preparar para produção](docs/etapa-05-producao.md).
 
 ## Princípios para as próximas atividades
 

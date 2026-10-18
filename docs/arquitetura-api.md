@@ -785,7 +785,8 @@ Cardinalidade e privacidade:
 | `MEMORY_EMBEDDING_DIMENSIONS` | `1536` | deve coincidir com o schema; validado no boot |
 | `MEMORY_KEY_CACHE_TTL` | `60s` | TTL do cache de chaves |
 | `MEMORY_MAX_BODY_BYTES` | `1048576` | limite de corpo |
-| `MEMORY_RATE_LIMIT_RPS` | `50` | limite por chave |
+| `MEMORY_RATE_LIMIT_RPS` | `50` | limite por chave (requisições/s; `0` desativa) |
+| `MEMORY_RATE_LIMIT_BURST` | `100` | rajada permitida por chave |
 | `MEMORY_LOG_LEVEL` | `info` | nível do slog |
 | `MEMORY_LOG_FORMAT` | `json` | `json` ou `text` |
 | `GIN_MODE` | `release` | modo do gin |
