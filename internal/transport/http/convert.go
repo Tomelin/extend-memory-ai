@@ -57,6 +57,10 @@ func toAPIRecallResponse(r domain.RecallResult) api.RecallResponse {
 			LexicalRank:  it.LexicalRank,
 			SemanticRank: it.SemanticRank,
 		}
+		if it.Links != nil {
+			links := toAPILinks(it.Links)
+			items[i].Links = &links
+		}
 	}
 	return api.RecallResponse{Items: items, TokenEstimate: r.TokenEstimate, Truncated: r.Truncated}
 }
@@ -179,4 +183,23 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func toAPILink(l domain.Link) api.Link {
+	return api.Link{
+		SourceMemoryId: l.SourceMemoryID,
+		TargetMemoryId: l.TargetMemoryID,
+		RelationType:   api.RelationType(l.RelationType),
+		Weight:         l.Weight,
+		Metadata:       toAPIMetadata(l.Metadata),
+		CreatedAt:      l.CreatedAt,
+	}
+}
+
+func toAPILinks(ls []domain.Link) []api.Link {
+	out := make([]api.Link, len(ls))
+	for i, l := range ls {
+		out[i] = toAPILink(l)
+	}
+	return out
 }

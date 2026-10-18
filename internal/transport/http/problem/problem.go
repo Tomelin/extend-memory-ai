@@ -33,6 +33,7 @@ var titles = map[api.ProblemCode]string{
 	api.ProblemCodeSpaceNotFound:       "Espaço não encontrado",
 	api.ProblemCodeMemoryNotFound:      "Memória não encontrada",
 	api.ProblemCodeIdempotencyConflict: "Conflito de idempotência",
+	api.ProblemCodeLinkConflict:        "Relação já existente",
 	api.ProblemCodeMethodNotAllowed:    "Método não permitido",
 	api.ProblemCodePayloadTooLarge:     "Corpo acima do limite",
 	api.ProblemCodeValidationFailed:    "Requisição inválida",
@@ -89,6 +90,8 @@ func AbortWithError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrIdempotencyConflict):
 		Abort(c, http.StatusConflict, api.ProblemCodeIdempotencyConflict,
 			"a chave de idempotência já foi usada com outro conteúdo")
+	case errors.Is(err, domain.ErrLinkConflict):
+		Abort(c, http.StatusConflict, api.ProblemCodeLinkConflict, "a relação já existe")
 	case errors.Is(err, domain.ErrNotFound):
 		Abort(c, http.StatusNotFound, api.ProblemCodeNotFound, "")
 	case errors.Is(err, domain.ErrValidation):

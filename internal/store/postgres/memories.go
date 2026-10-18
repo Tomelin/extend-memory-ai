@@ -208,51 +208,81 @@ func (s *Store) ListMemories(ctx context.Context, projectID uuid.UUID, externalI
 	return page, err
 }
 
-// RecallLexical returns the full-text candidates in rank order.
-func (s *Store) RecallLexical(ctx context.Context, projectID uuid.UUID, externalID string, rq domain.RecallQuery) (items []domain.RecallItem, err error) {
-	params := sqlcdb.RecallLexicalParams{
-		Query:          rq.Query,
-		MemoryTypes:    memoryTypes(rq.Filters.MemoryTypes),
-		OccurredAfter:  rq.Filters.OccurredAfter,
-		OccurredBefore: rq.Filters.OccurredBefore,
-		SourceType:     nonEmpty(rq.Filters.SourceType),
-		SourceRef:      nonEmpty(rq.Filters.SourceRef),
-		CandidateLimit: int32(rq.CandidateLimit), //nolint:gosec // validated (<= 200)
-	}
+// RecallCandidates runs the strategies requested by rq in one transaction
+// and returns each ranked candidate list.
+func (s *Store) RecallCandidates(ctx context.Context, projectID uuid.UUID, externalID string, rq domain.RecallQuery) (c domain.RecallCandidates, err error) {
+	var md []byte
 	if rq.Filters.Metadata != nil {
-		if params.Metadata, err = json.Marshal(rq.Filters.Metadata); err != nil {
-			return nil, err
+		if md, err = json.Marshal(rq.Filters.Metadata); err != nil {
+			return c, err
 		}
 	}
+	types := memoryTypes(rq.Filters.MemoryTypes)
+	f := rq.Filters
+	limit := int32(rq.CandidateLimit) //nolint:gosec // validated (<= 200)
 	err = s.WithProject(ctx, projectID, func(q *sqlcdb.Queries) error {
 		space, err := getSpace(ctx, q, externalID)
 		if err != nil {
 			return err
 		}
-		params.SpaceID = space.ID
-		rows, err := q.RecallLexical(ctx, params)
-		if err != nil {
-			return err
-		}
-		items = make([]domain.RecallItem, len(rows))
-		for i, r := range rows {
-			m, err := toMemory(memoryRow{
-				ID: r.ID, ProjectID: r.ProjectID, SpaceID: r.SpaceID, MemoryType: r.MemoryType,
-				Content: r.Content, Summary: r.Summary, EmbeddingModel: r.EmbeddingModel,
-				SourceType: r.SourceType, SourceRef: r.SourceRef, IdempotencyKey: r.IdempotencyKey,
-				IdempotencyHash: r.IdempotencyHash, Importance: r.Importance, OccurredAt: r.OccurredAt,
-				ExpiresAt: r.ExpiresAt, Metadata: r.Metadata, CreatedAt: r.CreatedAt,
-				UpdatedAt: r.UpdatedAt, DeletedAt: r.DeletedAt,
-			}, externalID)
+		if rq.Lexical() {
+			rows, err := q.RecallLexical(ctx, sqlcdb.RecallLexicalParams{
+				Query: rq.Query, SpaceID: space.ID, MemoryTypes: types,
+				OccurredAfter: f.OccurredAfter, OccurredBefore: f.OccurredBefore,
+				SourceType: nonEmpty(f.SourceType), SourceRef: nonEmpty(f.SourceRef),
+				Metadata: md, CandidateLimit: limit,
+			})
 			if err != nil {
 				return err
 			}
-			rank := int(r.Rank)
-			items[i] = domain.RecallItem{Memory: m, LexicalRank: &rank}
+			c.Lexical = make([]domain.RecallItem, len(rows))
+			for i, r := range rows {
+				m, rank, err := rankedToMemory(rankedRow(r), externalID)
+				if err != nil {
+					return err
+				}
+				c.Lexical[i] = domain.RecallItem{Memory: m, LexicalRank: &rank}
+			}
+		}
+		if rq.Semantic() {
+			rows, err := q.RecallSemantic(ctx, sqlcdb.RecallSemanticParams{
+				QueryVector: pgvector.NewVector(rq.QueryEmbedding.Vector), SpaceID: space.ID,
+				EmbeddingModel: rq.QueryEmbedding.Model, MemoryTypes: types,
+				OccurredAfter: f.OccurredAfter, OccurredBefore: f.OccurredBefore,
+				SourceType: nonEmpty(f.SourceType), SourceRef: nonEmpty(f.SourceRef),
+				Metadata: md, CandidateLimit: limit,
+			})
+			if err != nil {
+				return err
+			}
+			c.Semantic = make([]domain.RecallItem, len(rows))
+			for i, r := range rows {
+				m, rank, err := rankedToMemory(rankedRow(r), externalID)
+				if err != nil {
+					return err
+				}
+				c.Semantic[i] = domain.RecallItem{Memory: m, SemanticRank: &rank}
+			}
 		}
 		return nil
 	})
-	return items, err
+	return c, err
+}
+
+// rankedRow is the column list of the recall queries: the memory columns
+// plus the 1-based rank.
+type rankedRow sqlcdb.RecallLexicalRow
+
+func rankedToMemory(r rankedRow, externalID string) (domain.Memory, int, error) {
+	m, err := toMemory(memoryRow{
+		ID: r.ID, ProjectID: r.ProjectID, SpaceID: r.SpaceID, MemoryType: r.MemoryType,
+		Content: r.Content, Summary: r.Summary, EmbeddingModel: r.EmbeddingModel,
+		SourceType: r.SourceType, SourceRef: r.SourceRef, IdempotencyKey: r.IdempotencyKey,
+		IdempotencyHash: r.IdempotencyHash, Importance: r.Importance, OccurredAt: r.OccurredAt,
+		ExpiresAt: r.ExpiresAt, Metadata: r.Metadata, CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt, DeletedAt: r.DeletedAt,
+	}, externalID)
+	return m, int(r.Rank), err
 }
 
 func getSpace(ctx context.Context, q *sqlcdb.Queries, externalID string) (sqlcdb.MemorySpace, error) {

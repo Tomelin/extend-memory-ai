@@ -1,9 +1,13 @@
 package domain
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 // MatchStrategy names the retrieval strategy that found a memory.
@@ -124,12 +128,80 @@ func (q RecallQuery) Lexical() bool { return q.Query != "" }
 func (q RecallQuery) Semantic() bool { return q.QueryEmbedding != nil }
 
 // RecallItem is a ranked memory. Ranks are 1-based positions in each
-// strategy's candidate list; nil means the strategy did not find it.
+// strategy's candidate list; nil means the strategy did not find it. Links
+// holds the direct relations when include_links is requested.
 type RecallItem struct {
 	Memory       Memory
 	Score        float64
 	LexicalRank  *int
 	SemanticRank *int
+	Links        []Link
+}
+
+// RecallCandidates are the ranked lists of each strategy, before fusion.
+type RecallCandidates struct {
+	Lexical  []RecallItem
+	Semantic []RecallItem
+}
+
+// RRFK is the Reciprocal Rank Fusion constant.
+const RRFK = 60
+
+// FuseRRF merges the candidate lists by memory and scores each one with
+// Σ 1 / (RRFK + rank). Scores of different scales are never added. Ties are
+// broken by the best rank and then by id, so the order is deterministic.
+func FuseRRF(c RecallCandidates) []RecallItem {
+	byID := map[uuid.UUID]*RecallItem{}
+	var order []uuid.UUID
+	merge := func(list []RecallItem) {
+		for _, it := range list {
+			cur, ok := byID[it.Memory.ID]
+			if !ok {
+				cp := it
+				byID[it.Memory.ID] = &cp
+				order = append(order, it.Memory.ID)
+				continue
+			}
+			if it.LexicalRank != nil {
+				cur.LexicalRank = it.LexicalRank
+			}
+			if it.SemanticRank != nil {
+				cur.SemanticRank = it.SemanticRank
+			}
+		}
+	}
+	merge(c.Lexical)
+	merge(c.Semantic)
+
+	out := make([]RecallItem, 0, len(order))
+	for _, id := range order {
+		it := *byID[id]
+		it.Score = 0
+		for _, r := range []*int{it.LexicalRank, it.SemanticRank} {
+			if r != nil {
+				it.Score += 1.0 / float64(RRFK+*r)
+			}
+		}
+		out = append(out, it)
+	}
+	slices.SortStableFunc(out, func(a, b RecallItem) int {
+		return cmp.Or(
+			cmp.Compare(b.Score, a.Score),
+			cmp.Compare(bestRank(a), bestRank(b)),
+			strings.Compare(a.Memory.ID.String(), b.Memory.ID.String()),
+		)
+	})
+	return out
+}
+
+func bestRank(it RecallItem) int {
+	best := int(^uint(0) >> 1)
+	for _, r := range []*int{it.LexicalRank, it.SemanticRank} {
+		if r != nil && *r < best {
+			best = *r
+		}
+	}
+	return best
 }
 
 // MatchedBy lists the strategies that found the memory.

@@ -78,6 +78,8 @@ para depois.
 
 ## Próxima etapa (Etapa 3)
 
+Detalhada em [`etapa-03-busca-hibrida.md`](etapa-03-busca-hibrida.md).
+
 Busca semântica (pgvector, filtrando por `embedding_model`), fusão RRF das duas
 listas, relações entre memórias (`include_links`) e remoção da tag `@etapa-3`
 dos cenários correspondentes.

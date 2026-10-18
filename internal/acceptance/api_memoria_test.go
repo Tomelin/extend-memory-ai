@@ -272,6 +272,65 @@ func initAPIScenario(sc *godog.ScenarioContext, e *env) {
 		}
 		return nil
 	})
+	sc.Step(`^que existe uma memória com embedding do modelo "([^"]+)" e sem termos em comum com a consulta$`, func(model string) error {
+		s.retain(map[string]any{"content": "Planilha trimestral de despesas", "embedding": embedding(1536, model)})
+		return s.statusIs(http.StatusCreated)
+	})
+	sc.Step(`^envio um recall somente com embedding do modelo "([^"]+)"$`, func(model string) {
+		s.recall(map[string]any{"query_embedding": embedding(1536, model)})
+	})
+	sc.Step(`^a memória não deve ser retornada$`, func() error {
+		if err := s.statusIs(http.StatusOK); err != nil {
+			return err
+		}
+		if s.recalled(s.memoryID) != nil {
+			return fmt.Errorf("memory of another model was recalled: %s", s.resp.Body)
+		}
+		return nil
+	})
+
+	// Links.
+	sc.Step(`^que existem as memórias "([^"]+)" no espaço "([^"]+)" e "([^"]+)" no espaço "([^"]+)"$`, s.memoriesInSpaces)
+	sc.Step(`^(?:que )?cri(?:o|ei) a relação "([^"]+)" de "([^"]+)" para "([^"]+)" no espaço "([^"]+)"$`, func(rel, from, to, space string) {
+		s.send(http.MethodPost, "/v1/spaces/"+space+"/memories/"+s.memories[from].String()+"/links", s.token,
+			map[string]any{"target_memory_id": s.memories[to], "relation_type": rel})
+	})
+	sc.Step(`^listo as relações de entrada de "([^"]+)" no espaço "([^"]+)"$`, func(label, space string) {
+		s.send(http.MethodGet, "/v1/spaces/"+space+"/memories/"+s.memories[label].String()+"/links?direction=incoming", s.token, nil)
+	})
+	sc.Step(`^deve existir somente a relação "([^"]+)" de "([^"]+)" para "([^"]+)"$`, func(rel, from, to string) error {
+		if err := s.statusIs(http.StatusOK); err != nil {
+			return err
+		}
+		var r struct{ Items []link }
+		if err := json.Unmarshal(s.resp.Body.Bytes(), &r); err != nil {
+			return err
+		}
+		if len(r.Items) != 1 || !r.Items[0].is(rel, s.memories[from], s.memories[to]) {
+			return fmt.Errorf("links = %s", s.resp.Body)
+		}
+		return nil
+	})
+	sc.Step(`^removo a relação "([^"]+)" de "([^"]+)" para "([^"]+)" no espaço "([^"]+)"$`, func(rel, from, to, space string) {
+		s.send(http.MethodDelete, fmt.Sprintf("/v1/spaces/%s/memories/%s/links/%s/%s", space, s.memories[from], s.memories[to], rel), s.token, nil)
+	})
+	sc.Step(`^envio um recall por "([^"]+)" incluindo relações$`, func(query string) {
+		s.recall(map[string]any{"query": query, "include_links": true})
+	})
+	sc.Step(`^o resultado de "([^"]+)" deve incluir a relação "([^"]+)" para "([^"]+)"$`, func(from, rel, to string) error {
+		if err := s.statusIs(http.StatusOK); err != nil {
+			return err
+		}
+		item := s.recalled(s.memories[from].String())
+		if item == nil {
+			return fmt.Errorf("%s not recalled: %s", from, s.resp.Body)
+		}
+		if !slices.ContainsFunc(item.Links, func(l link) bool { return l.is(rel, s.memories[from], s.memories[to]) }) {
+			return fmt.Errorf("links of %s = %+v", from, item.Links)
+		}
+		return nil
+	})
+
 	sc.Step(`^envio um recall sem "query" e sem "query_embedding"$`, func() { s.recall(map[string]any{}) })
 	sc.Step(`^que existem (\d+) memórias relevantes de aproximadamente (\d+) tokens cada$`, func(n, tokens int) error {
 		content := strings.Repeat("relatório ", tokens*4/len([]rune("relatório ")))
@@ -377,6 +436,43 @@ func (s *apiScenario) recall(body map[string]any) {
 type recallItem struct {
 	Memory    struct{ ID string }
 	MatchedBy []string `json:"matched_by"`
+	Links     []link
+}
+
+type link struct {
+	Source   uuid.UUID `json:"source_memory_id"`
+	Target   uuid.UUID `json:"target_memory_id"`
+	Relation string    `json:"relation_type"`
+}
+
+func (l link) is(rel string, source, target uuid.UUID) bool {
+	return l.Relation == rel && l.Source == source && l.Target == target
+}
+
+// memoriesInSpaces creates memories "memória <label>" through the API,
+// creating the spaces that do not exist yet.
+func (s *apiScenario) memoriesInSpaces(labelA, spaceA, labelB, spaceB string) error {
+	for _, m := range [][2]string{{labelA, spaceA}, {labelB, spaceB}} {
+		s.send(http.MethodGet, "/v1/spaces/"+m[1], s.token, nil)
+		if s.resp.Code == http.StatusNotFound {
+			if err := s.createSpace(m[1]); err != nil {
+				return err
+			}
+		}
+		s.send(http.MethodPost, "/v1/spaces/"+m[1]+"/memories", s.token, map[string]any{"content": "memória " + m[0]})
+		if err := s.statusIs(http.StatusCreated); err != nil {
+			return err
+		}
+		s.memories[m[0]] = uuid.MustParse(s.memoryID)
+	}
+	return nil
+}
+
+func (s *apiScenario) createSpace(externalID string) error {
+	_, err := s.adminDB.Exec(context.Background(),
+		"INSERT INTO memory_spaces (project_id, external_id, name) VALUES ($1, $2, $3)",
+		s.projects["assistente-financeiro"], externalID, externalID)
+	return err
 }
 
 func (s *apiScenario) recallItems() []recallItem {

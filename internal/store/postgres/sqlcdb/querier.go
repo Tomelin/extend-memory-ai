@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	// Live memories visible to the current project (RLS applies).
 	CountMemories(ctx context.Context) (int64, error)
+	DeleteLink(ctx context.Context, arg DeleteLinkParams) (int64, error)
 	// Physical removal; memories and links go with ON DELETE CASCADE.
 	DeleteSpace(ctx context.Context, externalID string) (int64, error)
 	// pgvector stores the declared dimension as the column type modifier.
@@ -23,17 +24,25 @@ type Querier interface {
 	GetProjectBySlug(ctx context.Context, slug string) (GetProjectBySlugRow, error)
 	GetSpaceByExternalID(ctx context.Context, externalID string) (MemorySpace, error)
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
+	InsertLink(ctx context.Context, arg InsertLinkParams) (MemoryLink, error)
 	// Returns no row when the idempotency key already exists in the space.
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (InsertMemoryRow, error)
 	InsertProject(ctx context.Context, arg InsertProjectParams) (InsertProjectRow, error)
 	// Returns no row when the space already exists; the caller then updates it.
 	InsertSpace(ctx context.Context, arg InsertSpaceParams) (MemorySpace, error)
 	ListAPIKeys(ctx context.Context, projectSlug string) ([]ListAPIKeysRow, error)
+	// Relations of one memory whose other end is still active.
+	ListLinks(ctx context.Context, arg ListLinksParams) ([]ListLinksRow, error)
+	// Direct relations (both directions) of the recalled memories.
+	ListLinksOfMemories(ctx context.Context, arg ListLinksOfMemoriesParams) ([]ListLinksOfMemoriesRow, error)
 	// Keyset pagination on (occurred_at DESC, id DESC), served by memories_active_timeline_idx.
 	ListMemories(ctx context.Context, arg ListMemoriesParams) ([]ListMemoriesRow, error)
 	Ping(ctx context.Context) (int32, error)
 	// Full-text candidates ranked by ts_rank_cd, with the optional recall filters.
 	RecallLexical(ctx context.Context, arg RecallLexicalParams) ([]RecallLexicalRow, error)
+	// Exact nearest neighbours by cosine distance, restricted to the query's
+	// embedding model: vectors of different models are not comparable.
+	RecallSemantic(ctx context.Context, arg RecallSemanticParams) ([]RecallSemanticRow, error)
 	ResolveAPIKey(ctx context.Context, prefix string) (ResolveAPIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, prefix string) (int64, error)
 	SchemaVersion(ctx context.Context) (SchemaMigration, error)

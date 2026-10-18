@@ -171,6 +171,27 @@ func (e SpaceKind) Valid() bool {
 	}
 }
 
+// Defines values for ListLinksParamsDirection.
+const (
+	Both     ListLinksParamsDirection = "both"
+	Incoming ListLinksParamsDirection = "incoming"
+	Outgoing ListLinksParamsDirection = "outgoing"
+)
+
+// Valid indicates whether the value is a known member of the ListLinksParamsDirection enum.
+func (e ListLinksParamsDirection) Valid() bool {
+	switch e {
+	case Both:
+		return true
+	case Incoming:
+		return true
+	case Outgoing:
+		return true
+	default:
+		return false
+	}
+}
+
 // Embedding defines model for Embedding.
 type Embedding struct {
 	// Model Identificador do modelo que gerou o vetor.
@@ -188,6 +209,15 @@ type Link struct {
 	SourceMemoryId openapi_types.UUID `json:"source_memory_id"`
 	TargetMemoryId openapi_types.UUID `json:"target_memory_id"`
 	Weight         float32            `json:"weight"`
+}
+
+// LinkInput defines model for LinkInput.
+type LinkInput struct {
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata       *Metadata          `json:"metadata,omitempty"`
+	RelationType   RelationType       `json:"relation_type"`
+	TargetMemoryId openapi_types.UUID `json:"target_memory_id"`
+	Weight         *float32           `json:"weight,omitempty"`
 }
 
 // Memory defines model for Memory.
@@ -431,6 +461,15 @@ type RetainMemoriesBatchJSONBody struct {
 	Items []MemoryInput `json:"items"`
 }
 
+// ListLinksParams defines parameters for ListLinks.
+type ListLinksParams struct {
+	Direction    *ListLinksParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
+	RelationType *RelationType             `form:"relation_type,omitempty" json:"relation_type,omitempty"`
+}
+
+// ListLinksParamsDirection defines parameters for ListLinks.
+type ListLinksParamsDirection string
+
 // UpsertSpaceJSONRequestBody defines body for UpsertSpace for application/json ContentType.
 type UpsertSpaceJSONRequestBody = SpaceInput
 
@@ -439,6 +478,9 @@ type RetainMemoryJSONRequestBody = MemoryInput
 
 // RetainMemoriesBatchJSONRequestBody defines body for RetainMemoriesBatch for application/json ContentType.
 type RetainMemoriesBatchJSONRequestBody RetainMemoriesBatchJSONBody
+
+// CreateLinkJSONRequestBody defines body for CreateLink for application/json ContentType.
+type CreateLinkJSONRequestBody = LinkInput
 
 // RecallJSONRequestBody defines body for Recall for application/json ContentType.
 type RecallJSONRequestBody = RecallRequest

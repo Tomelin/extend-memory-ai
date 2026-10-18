@@ -14,13 +14,18 @@ import (
 
 type fakeStore struct {
 	usecase.Store
-	candidates []domain.RecallItem
+	candidates domain.RecallCandidates
+	links      []domain.Link
 	calls      int
 }
 
-func (f *fakeStore) RecallLexical(context.Context, uuid.UUID, string, domain.RecallQuery) ([]domain.RecallItem, error) {
+func (f *fakeStore) RecallCandidates(context.Context, uuid.UUID, string, domain.RecallQuery) (domain.RecallCandidates, error) {
 	f.calls++
 	return f.candidates, nil
+}
+
+func (f *fakeStore) LinksOf(context.Context, uuid.UUID, string, []uuid.UUID) ([]domain.Link, error) {
+	return f.links, nil
 }
 
 func (f *fakeStore) Retain(context.Context, uuid.UUID, string, []domain.NewMemory) ([]domain.RetainResult, error) {
@@ -28,13 +33,13 @@ func (f *fakeStore) Retain(context.Context, uuid.UUID, string, []domain.NewMemor
 	return nil, nil
 }
 
-func candidates(n int, content string) []domain.RecallItem {
+func candidates(n int, content string) domain.RecallCandidates {
 	out := make([]domain.RecallItem, n)
 	for i := range out {
 		rank := i + 1
-		out[i] = domain.RecallItem{Memory: domain.Memory{Content: content}, LexicalRank: &rank}
+		out[i] = domain.RecallItem{Memory: domain.Memory{ID: uuid.New(), Content: content}, LexicalRank: &rank}
 	}
-	return out
+	return domain.RecallCandidates{Lexical: out}
 }
 
 func newService(t *testing.T, store usecase.Store) *usecase.Service {
@@ -76,12 +81,33 @@ func TestRecallStopsBeforeExceedingTokenBudget(t *testing.T) {
 	}
 }
 
-func TestRecallRejectsEmbeddingOnly(t *testing.T) {
-	store := &fakeStore{}
+func TestRecallSemanticOnly(t *testing.T) {
+	rank := 1
+	m := domain.Memory{ID: uuid.New(), Content: "x"}
+	store := &fakeStore{candidates: domain.RecallCandidates{Semantic: []domain.RecallItem{{Memory: m, SemanticRank: &rank}}}}
 	e := &domain.Embedding{Model: "m", Vector: make([]float32, domain.EmbeddingDimensions)}
-	_, err := newService(t, store).Recall(context.Background(), uuid.New(), "u", domain.RecallInput{QueryEmbedding: e})
-	if !errors.Is(err, domain.ErrValidation) || store.calls != 0 {
-		t.Fatalf("err = %v, store calls = %d", err, store.calls)
+	res, err := newService(t, store).Recall(context.Background(), uuid.New(), "u", domain.RecallInput{QueryEmbedding: e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 || res.Items[0].MatchedBy()[0] != domain.MatchSemantic {
+		t.Fatalf("items = %+v", res.Items)
+	}
+}
+
+func TestRecallAttachesDirectLinks(t *testing.T) {
+	store := &fakeStore{candidates: candidates(2, "x")}
+	a, b := store.candidates.Lexical[0].Memory.ID, store.candidates.Lexical[1].Memory.ID
+	store.links = []domain.Link{{SourceMemoryID: a, TargetMemoryID: uuid.New(), RelationType: domain.RelationSupports}}
+	res, err := newService(t, store).Recall(context.Background(), uuid.New(), "u", domain.RecallInput{Query: ptr("x"), IncludeLinks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range res.Items {
+		want := map[uuid.UUID]int{a: 1, b: 0}[it.Memory.ID]
+		if it.Links == nil || len(it.Links) != want {
+			t.Fatalf("memory %s links = %v, want %d", it.Memory.ID, it.Links, want)
+		}
 	}
 }
 
