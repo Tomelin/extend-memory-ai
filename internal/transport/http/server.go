@@ -88,6 +88,9 @@ func NewRouter(d Deps) (*gin.Engine, error) {
 	spaces.GET("/memories/:memory_id", read, h.getMemory)
 	spaces.DELETE("/memories/:memory_id", write, h.deleteMemory)
 	spaces.POST("/recall", read, h.recall)
+	spaces.POST("/memories/:memory_id/links", write, h.createLink)
+	spaces.GET("/memories/:memory_id/links", read, h.listLinks)
+	spaces.DELETE("/memories/:memory_id/links/:target_id/:relation_type", write, h.deleteLink)
 
 	return r, nil
 }

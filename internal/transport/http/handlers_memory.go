@@ -30,6 +30,9 @@ type MemoryService interface {
 	DeleteMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID) error
 	ListMemories(ctx context.Context, projectID uuid.UUID, externalID string, in domain.ListMemoriesInput) (domain.MemoryPage, error)
 	Recall(ctx context.Context, projectID uuid.UUID, externalID string, in domain.RecallInput) (domain.RecallResult, error)
+	CreateLink(ctx context.Context, projectID uuid.UUID, externalID string, in domain.LinkInput) (domain.Link, error)
+	ListLinks(ctx context.Context, projectID uuid.UUID, externalID string, memoryID uuid.UUID, f domain.LinkFilter) ([]domain.Link, error)
+	DeleteLink(ctx context.Context, projectID uuid.UUID, externalID string, source, target uuid.UUID, relation domain.RelationType) error
 }
 
 func (h handlers) upsertSpace(c *gin.Context) {
@@ -250,9 +253,13 @@ func principal(c *gin.Context) (domain.Principal, bool) {
 }
 
 func memoryID(c *gin.Context) (uuid.UUID, bool) {
-	id, err := uuid.Parse(c.Param("memory_id"))
+	return uuidParam(c, "memory_id")
+}
+
+func uuidParam(c *gin.Context, name string) (uuid.UUID, bool) {
+	id, err := uuid.Parse(c.Param(name))
 	if err != nil {
-		problem.Abort(c, http.StatusBadRequest, api.ProblemCodeMalformedRequest, "memory_id deve ser um UUID")
+		problem.Abort(c, http.StatusBadRequest, api.ProblemCodeMalformedRequest, name+" deve ser um UUID")
 		return uuid.Nil, false
 	}
 	return id, true
