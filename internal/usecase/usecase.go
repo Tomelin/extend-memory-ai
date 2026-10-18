@@ -20,9 +20,6 @@ import (
 
 const instrumentationName = "github.com/Tomelin/extend-memory-ai/internal/usecase"
 
-// rrfK is the Reciprocal Rank Fusion constant: score = Σ 1 / (rrfK + rank).
-const rrfK = 60
-
 // Store is the persistence port. Every method runs inside the project's
 // tenant context.
 type Store interface {
@@ -33,7 +30,11 @@ type Store interface {
 	GetMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID) (domain.Memory, error)
 	DeleteMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID) error
 	ListMemories(ctx context.Context, projectID uuid.UUID, externalID string, q domain.ListMemoriesQuery) (domain.MemoryPage, error)
-	RecallLexical(ctx context.Context, projectID uuid.UUID, externalID string, q domain.RecallQuery) ([]domain.RecallItem, error)
+	RecallCandidates(ctx context.Context, projectID uuid.UUID, externalID string, q domain.RecallQuery) (domain.RecallCandidates, error)
+	LinksOf(ctx context.Context, projectID uuid.UUID, externalID string, memoryIDs []uuid.UUID) ([]domain.Link, error)
+	CreateLink(ctx context.Context, projectID uuid.UUID, externalID string, l domain.NewLink) (domain.Link, error)
+	ListLinks(ctx context.Context, projectID uuid.UUID, externalID string, memoryID uuid.UUID, f domain.LinkFilter) ([]domain.Link, error)
+	DeleteLink(ctx context.Context, projectID uuid.UUID, externalID string, source, target uuid.UUID, relation domain.RelationType) error
 }
 
 // TokenCounter estimates how many tokens a text uses.
@@ -186,9 +187,8 @@ func (s *Service) ListMemories(ctx context.Context, projectID uuid.UUID, externa
 	return s.store.ListMemories(ctx, projectID, externalID, q)
 }
 
-// Recall runs the full-text strategy, ranks the candidates and applies the
-// limit and the token budget. The semantic strategy is not available yet:
-// query_embedding alone is rejected and, next to query, ignored.
+// Recall runs the requested strategies, fuses them with RRF, applies the
+// limit and the token budget and, on request, attaches direct relations.
 func (s *Service) Recall(ctx context.Context, projectID uuid.UUID, externalID string, in domain.RecallInput) (res domain.RecallResult, err error) {
 	ctx, span := s.tracer.Start(ctx, "app.Recall")
 	defer func() { end(span, err) }()
@@ -198,21 +198,23 @@ func (s *Service) Recall(ctx context.Context, projectID uuid.UUID, externalID st
 	if err != nil {
 		return domain.RecallResult{}, err
 	}
-	if !q.Lexical() {
-		return domain.RecallResult{}, &domain.ValidationError{Fields: []domain.FieldError{{
-			Field: "query", Message: "a busca semântica ainda não está disponível; informe query",
-		}}}
-	}
-
-	candidates, err := s.store.RecallLexical(ctx, projectID, externalID, q)
+	c, err := s.store.RecallCandidates(ctx, projectID, externalID, q)
 	if err != nil {
 		return domain.RecallResult{}, err
 	}
-	strategy := metric.WithAttributes(attribute.String("strategy", string(domain.MatchLexical)))
-	s.recallCandidates.Record(ctx, int64(len(candidates)), strategy)
-	span.AddEvent("lexical_candidates", trace.WithAttributes(attribute.Int("count", len(candidates))))
+	if q.Lexical() {
+		s.recordCandidates(ctx, span, domain.MatchLexical, len(c.Lexical))
+	}
+	if q.Semantic() {
+		s.recordCandidates(ctx, span, domain.MatchSemantic, len(c.Semantic))
+	}
 
-	res = s.rank(candidates, q)
+	res = s.budget(domain.FuseRRF(c), q)
+	if q.IncludeLinks {
+		if err := s.attachLinks(ctx, projectID, externalID, res.Items); err != nil {
+			return domain.RecallResult{}, err
+		}
+	}
 
 	span.AddEvent("returned", trace.WithAttributes(attribute.Int("count", len(res.Items))))
 	s.recallResults.Record(ctx, int64(len(res.Items)))
@@ -220,33 +222,100 @@ func (s *Service) Recall(ctx context.Context, projectID uuid.UUID, externalID st
 		span.AddEvent("truncated", trace.WithAttributes(attribute.Int("token_estimate", res.TokenEstimate)))
 		s.recallTruncated.Add(ctx, 1)
 	}
-	s.recallDuration.Record(ctx, time.Since(start).Seconds(), strategy)
+	s.recallDuration.Record(ctx, time.Since(start).Seconds(),
+		metric.WithAttributes(attribute.String("strategy", strategy(q))))
 	return res, nil
 }
 
-// rank scores candidates with RRF and stops at the limit or before the
-// token budget is exceeded.
-func (s *Service) rank(candidates []domain.RecallItem, q domain.RecallQuery) domain.RecallResult {
-	res := domain.RecallResult{Items: make([]domain.RecallItem, 0, min(len(candidates), q.Limit))}
-	for _, c := range candidates {
+func (s *Service) recordCandidates(ctx context.Context, span trace.Span, st domain.MatchStrategy, n int) {
+	s.recallCandidates.Record(ctx, int64(n), metric.WithAttributes(attribute.String("strategy", string(st))))
+	span.AddEvent(string(st)+"_candidates", trace.WithAttributes(attribute.Int("count", n)))
+}
+
+func strategy(q domain.RecallQuery) string {
+	switch {
+	case q.Lexical() && q.Semantic():
+		return "hybrid"
+	case q.Semantic():
+		return string(domain.MatchSemantic)
+	}
+	return string(domain.MatchLexical)
+}
+
+// budget keeps the fused order and stops at the limit or before the token
+// budget is exceeded.
+func (s *Service) budget(fused []domain.RecallItem, q domain.RecallQuery) domain.RecallResult {
+	res := domain.RecallResult{Items: make([]domain.RecallItem, 0, min(len(fused), q.Limit))}
+	for _, it := range fused {
 		if len(res.Items) == q.Limit {
 			break
 		}
-		tokens := s.countTokens(c.Memory.Content)
+		tokens := s.countTokens(it.Memory.Content)
 		if q.MaxTokens != nil && res.TokenEstimate+tokens > *q.MaxTokens {
 			res.Truncated = true
 			break
 		}
-		c.Score = 0
-		for _, r := range []*int{c.LexicalRank, c.SemanticRank} {
-			if r != nil {
-				c.Score += 1.0 / float64(rrfK+*r)
-			}
-		}
 		res.TokenEstimate += tokens
-		res.Items = append(res.Items, c)
+		res.Items = append(res.Items, it)
 	}
 	return res
+}
+
+// attachLinks adds the direct relations (both directions) of each item,
+// without following them recursively.
+func (s *Service) attachLinks(ctx context.Context, projectID uuid.UUID, externalID string, items []domain.RecallItem) error {
+	ids := make([]uuid.UUID, len(items))
+	for i, it := range items {
+		ids[i] = it.Memory.ID
+		items[i].Links = []domain.Link{}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	links, err := s.store.LinksOf(ctx, projectID, externalID, ids)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		id := items[i].Memory.ID
+		for _, l := range links {
+			if l.SourceMemoryID == id || l.TargetMemoryID == id {
+				items[i].Links = append(items[i].Links, l)
+			}
+		}
+	}
+	return nil
+}
+
+// CreateLink relates two memories of the same space.
+func (s *Service) CreateLink(ctx context.Context, projectID uuid.UUID, externalID string, in domain.LinkInput) (l domain.Link, err error) {
+	ctx, span := s.tracer.Start(ctx, "app.CreateLink")
+	defer func() { end(span, err) }()
+	nl, err := in.Prepare()
+	if err != nil {
+		return domain.Link{}, err
+	}
+	return s.store.CreateLink(ctx, projectID, externalID, nl)
+}
+
+// ListLinks returns the relations of a memory.
+func (s *Service) ListLinks(ctx context.Context, projectID uuid.UUID, externalID string, memoryID uuid.UUID, f domain.LinkFilter) (links []domain.Link, err error) {
+	ctx, span := s.tracer.Start(ctx, "app.ListLinks")
+	defer func() { end(span, err) }()
+	if f, err = f.Prepare(); err != nil {
+		return nil, err
+	}
+	return s.store.ListLinks(ctx, projectID, externalID, memoryID, f)
+}
+
+// DeleteLink removes a relation.
+func (s *Service) DeleteLink(ctx context.Context, projectID uuid.UUID, externalID string, source, target uuid.UUID, relation domain.RelationType) (err error) {
+	ctx, span := s.tracer.Start(ctx, "app.DeleteLink")
+	defer func() { end(span, err) }()
+	if !relation.Valid() {
+		return &domain.ValidationError{Fields: []domain.FieldError{{Field: "relation_type", Message: "valor não aceito"}}}
+	}
+	return s.store.DeleteLink(ctx, projectID, externalID, source, target, relation)
 }
 
 // end closes the span; only unexpected errors mark it as failed, so 4xx
