@@ -1,0 +1,120 @@
+version: "3"
+
+vars:
+  SQLC_VERSION: v1.31.1
+  OAPI_CODEGEN_VERSION: v2.8.0
+  GOLANGCI_LINT_VERSION: v2.15.0
+  MIGRATOR_URL: '{{.MEMORY_MIGRATOR_DATABASE_URL | default "postgres://memory_migrator:memory_migrator@localhost:5432/extend_memory_for_ai?sslmode=disable"}}'
+  ADMIN_URL: '{{.MEMORY_ADMIN_DATABASE_URL | default "postgres://memory_admin:memory_admin@localhost:5432/extend_memory_for_ai?sslmode=disable"}}'
+  APP_URL: '{{.MEMORY_DATABASE_URL | default "postgres://memory_app:memory_app@localhost:5432/extend_memory_for_ai?sslmode=disable"}}'
+
+env:
+  MEMORY_MIGRATOR_DATABASE_URL: "{{.MIGRATOR_URL}}"
+  MEMORY_ADMIN_DATABASE_URL: "{{.ADMIN_URL}}"
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  tools:
+    desc: Instala sqlc, oapi-codegen e golangci-lint nas versões fixadas
+    cmds:
+      - go install github.com/sqlc-dev/sqlc/cmd/sqlc@{{.SQLC_VERSION}}
+      - go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@{{.OAPI_CODEGEN_VERSION}}
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+
+  generate:
+    desc: Gera o código Go a partir das queries (sqlc) e do OpenAPI (oapi-codegen)
+    cmds:
+      - sqlc generate
+      - oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+
+  generate:check:
+    desc: Falha se o código gerado estiver desatualizado
+    cmds:
+      - task: generate
+      - git diff --exit-code -- internal/store/postgres/sqlcdb internal/transport/http/api
+      - sqlc diff
+
+  lint:
+    desc: golangci-lint, sqlc vet e validação do OpenAPI
+    cmds:
+      - task: lint:go
+      - task: lint:sqlc
+      - task: lint:openapi
+
+  lint:go:
+    cmds:
+      - golangci-lint run ./...
+
+  lint:sqlc:
+    cmds:
+      - sqlc vet
+
+  lint:openapi:
+    cmds:
+      - docker run --rm -v "{{.ROOT_DIR}}:/spec" redocly/cli:1.25.15 lint --config /spec/redocly.yaml /spec/api/openapi.yaml
+
+  test:
+    desc: Testes unitários
+    cmds:
+      - go test -race ./...
+
+  test:integration:
+    desc: Testes de integração e aceitação (godog) com testcontainers; requer Docker
+    cmds:
+      - go test -race -tags integration -count=1 ./...
+
+  test:migrations:
+    desc: "Aplica e reverte todas as migrações no banco local: up -> down --all -> up"
+    cmds:
+      - go run ./cmd/memory-admin migrate up
+      - go run ./cmd/memory-admin migrate down --all
+      - go run ./cmd/memory-admin migrate up
+
+  build:
+    desc: Compila todos os pacotes e binários
+    cmds:
+      - go build ./...
+
+  docker:build:
+    desc: Constrói a imagem do memory-api (sem publicar)
+    cmds:
+      - docker build -t extend-memory-ai/memory-api:dev .
+
+  up:
+    desc: Sobe PostgreSQL, Jaeger e Prometheus
+    cmds:
+      - docker compose up -d --wait
+
+  down:
+    desc: Derruba o ambiente local
+    cmds:
+      - docker compose down
+
+  migrate:up:
+    desc: Aplica as migrações pendentes
+    cmds:
+      - go run ./cmd/memory-admin migrate up
+
+  migrate:down:
+    desc: "Reverte N migrações (task migrate:down -- 1)"
+    cmds:
+      - go run ./cmd/memory-admin migrate down {{.CLI_ARGS}}
+
+  admin:
+    desc: "Executa o memory-admin (task admin -- key list --project <slug>)"
+    cmds:
+      - go run ./cmd/memory-admin {{.CLI_ARGS}}
+
+  run:
+    desc: Executa o memory-api localmente, enviando traces ao Jaeger
+    env:
+      MEMORY_DATABASE_URL: "{{.APP_URL}}"
+      MEMORY_LOG_FORMAT: text
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+      OTEL_TRACES_SAMPLER: parentbased_always_on
+      GIN_MODE: debug
+    cmds:
+      - go run ./cmd/memory-api

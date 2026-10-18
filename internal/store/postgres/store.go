@@ -127,7 +127,7 @@ func (s *Store) CheckSchema(ctx context.Context, expectedVersion uint, embedding
 	if v.Dirty {
 		return fmt.Errorf("%w: version %d is dirty", ErrSchemaMismatch, v.Version)
 	}
-	if v.Version != int64(expectedVersion) {
+	if v.Version != int64(expectedVersion) { //nolint:gosec // migration versions are small
 		return fmt.Errorf("%w: found version %d, expected %d", ErrSchemaMismatch, v.Version, expectedVersion)
 	}
 	dims, err := q.EmbeddingDimensions(ctx)

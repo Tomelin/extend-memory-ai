@@ -58,9 +58,3 @@ func (c *keyCache) put(prefix string, cred domain.APIKeyCredential, found bool, 
 	}
 	c.entries[prefix] = cacheEntry{cred: cred, found: found, expires: now.Add(ttl)}
 }
-
-func (c *keyCache) len() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.entries)
-}

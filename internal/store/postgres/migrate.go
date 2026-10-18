@@ -34,7 +34,7 @@ func LatestVersion() (uint, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 	v, err := src.First()
 	if err != nil {
 		return 0, err

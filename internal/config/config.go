@@ -38,7 +38,7 @@ func LoadAPI(lookup LookupFunc) (API, error) {
 		HTTPAddr:            l.str("MEMORY_HTTP_ADDR", ":8080"),
 		MetricsAddr:         l.str("MEMORY_METRICS_ADDR", ":9090"),
 		DatabaseURL:         l.str("MEMORY_DATABASE_URL", ""),
-		DBMaxConns:          int32(l.integer("MEMORY_DB_MAX_CONNS", 20, 1, 1000)),
+		DBMaxConns:          int32(l.integer("MEMORY_DB_MAX_CONNS", 20, 1, 1000)), //nolint:gosec // bounded to [1, 1000]
 		EmbeddingDimensions: l.integer("MEMORY_EMBEDDING_DIMENSIONS", 1536, 1, 16000),
 		KeyCacheTTL:         l.duration("MEMORY_KEY_CACHE_TTL", 60*time.Second),
 		KeyNegativeCacheTTL: l.duration("MEMORY_KEY_NEGATIVE_CACHE_TTL", 5*time.Second),
