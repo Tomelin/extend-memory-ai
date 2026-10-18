@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -65,6 +66,9 @@ type entidades struct {
 	lexical  []domain.RecallItem
 	semantic []domain.RecallItem
 	fused    []domain.RecallItem
+
+	current domain.Memory
+	update  domain.MemoryUpdate
 }
 
 func initializeEntidades(sc *godog.ScenarioContext) {
@@ -114,6 +118,15 @@ func initializeEntidades(sc *godog.ScenarioContext) {
 	sc.Step(`^uma relação "([^"]*)" da memória para ela mesma$`, s.aSelfLink)
 	sc.Step(`^preparo a relação$`, s.prepareLink)
 	sc.Step(`^o peso da relação deve ser (\d+)$`, s.linkWeightShouldBe)
+
+	sc.Step(`^uma memória gravada com embedding do modelo "([^"]*)"$`, s.storedWithEmbedding)
+	sc.Step(`^uma memória gravada com metadata (\{.*\})$`, s.storedWithMetadata)
+	sc.Step(`^aplico a alteração com "([^"]*)" igual a "([^"]*)"$`, s.applyField)
+	sc.Step(`^aplico a alteração de metadata (\{.*\})$`, s.applyMetadata)
+	sc.Step(`^o embedding deve ser "(removido|mantido)"$`, s.embeddingShouldBe)
+	sc.Step(`^a metadata deve ser (\{.*\})$`, s.metadataShouldBe)
+	sc.Step(`^uma listagem de espaços com "([^"]*)" igual a "([^"]*)"$`, s.spaceListing)
+	sc.Step(`^preparo a listagem de espaços$`, func() {})
 
 	sc.Step(`^a preparação deve ser aceita$`, s.accepted)
 	sc.Step(`^a preparação deve falhar no campo "([^"]*)"$`, s.failedOnField)
@@ -411,6 +424,85 @@ func (s *entidades) prepareLink() {
 
 func (s *entidades) linkWeightShouldBe(w int) error {
 	return expectEqual("weight", float32(w), s.newLink.Weight)
+}
+
+func (s *entidades) storedWithEmbedding(model string) {
+	s.current = domain.Memory{ID: uuid.New(), Content: "O usuário prefere relatórios em PDF",
+		EmbeddingModel: &model, Importance: 0.5, OccurredAt: retainInstant, Metadata: domain.Metadata{}}
+}
+
+func (s *entidades) storedWithMetadata(raw string) error {
+	s.storedWithEmbedding("modelo-a")
+	return json.Unmarshal([]byte(raw), &s.current.Metadata)
+}
+
+func (s *entidades) applyField(field, value string) error {
+	var p domain.MemoryPatch
+	switch field {
+	case "content":
+		p.Content = domain.PatchField[string]{Set: true, Value: value}
+	case "importance":
+		f, err := strconv.ParseFloat(value, 32)
+		if err != nil {
+			return err
+		}
+		p.Importance = domain.PatchField[float32]{Set: true, Value: float32(f)}
+	case "expires_at":
+		t, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return err
+		}
+		p.ExpiresAt = domain.PatchField[time.Time]{Set: true, Value: t}
+	default:
+		if !slices.Contains(domain.ImmutableMemoryFields, field) {
+			return fmt.Errorf("unknown patch field %q", field)
+		}
+		p.Immutable = []string{field}
+	}
+	s.update, s.err = p.Apply(s.current)
+	return nil
+}
+
+func (s *entidades) applyMetadata(raw string) error {
+	var md domain.Metadata
+	if err := json.Unmarshal([]byte(raw), &md); err != nil {
+		return err
+	}
+	s.update, s.err = domain.MemoryPatch{Metadata: domain.PatchField[domain.Metadata]{Set: true, Value: md}}.Apply(s.current)
+	return nil
+}
+
+func (s *entidades) embeddingShouldBe(state string) error {
+	want := map[string]domain.EmbeddingChange{"removido": domain.EmbeddingClear, "mantido": domain.EmbeddingKeep}[state]
+	return expectEqual("embedding", want, s.update.Embedding)
+}
+
+func (s *entidades) metadataShouldBe(raw string) error {
+	var want domain.Metadata
+	if err := json.Unmarshal([]byte(raw), &want); err != nil {
+		return err
+	}
+	a, _ := json.Marshal(want)
+	b, _ := json.Marshal(s.update.Metadata)
+	return expectEqual("metadata", string(a), string(b))
+}
+
+func (s *entidades) spaceListing(field, value string) error {
+	in := domain.ListSpacesInput{}
+	switch field {
+	case "kind":
+		in.Kind = domain.SpaceKind(value)
+	case "limit":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		in.Limit = &n
+	default:
+		return fmt.Errorf("unknown listing field %q", field)
+	}
+	_, s.err = in.Prepare()
+	return nil
 }
 
 func setSpaceField(in *domain.SpaceInput, field, value string) error {
