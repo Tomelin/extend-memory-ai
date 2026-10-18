@@ -1,4 +1,11 @@
--- Core multi-project memory schema.
+-- Text search configuration and core multi-project memory schema.
+
+-- Portuguese stemming with accents removed before tokenization.
+CREATE TEXT SEARCH CONFIGURATION portuguese_unaccent (COPY = portuguese);
+
+ALTER TEXT SEARCH CONFIGURATION portuguese_unaccent
+  ALTER MAPPING FOR hword, hword_part, word
+  WITH unaccent, portuguese_stem;
 
 CREATE TABLE projects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

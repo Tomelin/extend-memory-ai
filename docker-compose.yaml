@@ -10,12 +10,37 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./database/initdb:/docker-entrypoint-initdb.d:ro
+      - ./database/bootstrap/001-extensions.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
+      - ./database/bootstrap/002-roles.sql:/docker-entrypoint-initdb.d/002-roles.sql:ro
+      - ./database/local/003-dev-passwords.sql:/docker-entrypoint-initdb.d/003-dev-passwords.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d extend_memory_for_ai"]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: memory-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "4317:4317"
+      - "16686:16686"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: memory-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9091:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./deploy/local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: unless-stopped
 
 volumes:

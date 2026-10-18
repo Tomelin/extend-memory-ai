@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS memory_links;
+DROP TABLE IF EXISTS memories;
+DROP TABLE IF EXISTS memory_spaces;
+DROP TABLE IF EXISTS projects;
+DROP FUNCTION IF EXISTS set_updated_at();
+DROP TEXT SEARCH CONFIGURATION IF EXISTS portuguese_unaccent;
