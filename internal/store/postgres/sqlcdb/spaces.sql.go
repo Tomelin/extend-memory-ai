@@ -85,6 +85,50 @@ func (q *Queries) InsertSpace(ctx context.Context, arg InsertSpaceParams) (Memor
 	return i, err
 }
 
+const listSpaces = `-- name: ListSpaces :many
+SELECT id, project_id, external_id, name, kind, metadata, created_at, updated_at FROM memory_spaces
+WHERE ($1::text IS NULL OR kind = $1::text)
+  AND ($2::text IS NULL OR external_id > $2::text)
+ORDER BY external_id
+LIMIT $3::int
+`
+
+type ListSpacesParams struct {
+	Kind            *string
+	AfterExternalID *string
+	RowLimit        int32
+}
+
+// Keyset pagination on external_id.
+func (q *Queries) ListSpaces(ctx context.Context, arg ListSpacesParams) ([]MemorySpace, error) {
+	rows, err := q.db.Query(ctx, listSpaces, arg.Kind, arg.AfterExternalID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MemorySpace
+	for rows.Next() {
+		var i MemorySpace
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ExternalID,
+			&i.Name,
+			&i.Kind,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateSpace = `-- name: UpdateSpace :one
 UPDATE memory_spaces
 SET name = $1, kind = $2, metadata = $3

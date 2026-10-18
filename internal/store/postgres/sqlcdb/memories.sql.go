@@ -90,6 +90,68 @@ func (q *Queries) GetActiveMemory(ctx context.Context, arg GetActiveMemoryParams
 	return i, err
 }
 
+const getActiveMemoryForUpdate = `-- name: GetActiveMemoryForUpdate :one
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+FROM memories
+WHERE space_id = $1 AND id = $2
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+FOR UPDATE
+`
+
+type GetActiveMemoryForUpdateParams struct {
+	SpaceID uuid.UUID
+	ID      uuid.UUID
+}
+
+type GetActiveMemoryForUpdateRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+func (q *Queries) GetActiveMemoryForUpdate(ctx context.Context, arg GetActiveMemoryForUpdateParams) (GetActiveMemoryForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getActiveMemoryForUpdate, arg.SpaceID, arg.ID)
+	var i GetActiveMemoryForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.SpaceID,
+		&i.MemoryType,
+		&i.Content,
+		&i.Summary,
+		&i.EmbeddingModel,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.Importance,
+		&i.OccurredAt,
+		&i.ExpiresAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getMemoryByIdempotencyKey = `-- name: GetMemoryByIdempotencyKey :one
 SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
   source_type, source_ref, idempotency_key, idempotency_hash, importance,
@@ -580,4 +642,91 @@ func (q *Queries) SoftDeleteMemory(ctx context.Context, arg SoftDeleteMemoryPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateMemory = `-- name: UpdateMemory :one
+UPDATE memories
+SET content = $1,
+    summary = $2,
+    importance = $3,
+    expires_at = $4,
+    metadata = $5,
+    embedding = CASE WHEN $6::boolean THEN embedding ELSE $7::vector END,
+    embedding_model = CASE WHEN $6::boolean THEN embedding_model ELSE $8::text END
+WHERE space_id = $9 AND id = $10
+RETURNING id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+`
+
+type UpdateMemoryParams struct {
+	Content        string
+	Summary        *string
+	Importance     float32
+	ExpiresAt      *time.Time
+	Metadata       json.RawMessage
+	KeepEmbedding  bool
+	Embedding      *pgvector_go.Vector
+	EmbeddingModel *string
+	SpaceID        uuid.UUID
+	ID             uuid.UUID
+}
+
+type UpdateMemoryRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+// keep_embedding = false replaces the vector and model (both NULL to clear).
+func (q *Queries) UpdateMemory(ctx context.Context, arg UpdateMemoryParams) (UpdateMemoryRow, error) {
+	row := q.db.QueryRow(ctx, updateMemory,
+		arg.Content,
+		arg.Summary,
+		arg.Importance,
+		arg.ExpiresAt,
+		arg.Metadata,
+		arg.KeepEmbedding,
+		arg.Embedding,
+		arg.EmbeddingModel,
+		arg.SpaceID,
+		arg.ID,
+	)
+	var i UpdateMemoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.SpaceID,
+		&i.MemoryType,
+		&i.Content,
+		&i.Summary,
+		&i.EmbeddingModel,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.Importance,
+		&i.OccurredAt,
+		&i.ExpiresAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }

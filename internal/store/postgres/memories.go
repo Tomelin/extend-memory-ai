@@ -386,3 +386,76 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// ListSpaces returns one page of the project's spaces ordered by external_id.
+func (s *Store) ListSpaces(ctx context.Context, projectID uuid.UUID, lq domain.ListSpacesQuery) (page domain.SpacePage, err error) {
+	err = s.WithProject(ctx, projectID, func(q *sqlcdb.Queries) error {
+		rows, err := q.ListSpaces(ctx, sqlcdb.ListSpacesParams{
+			Kind:            nonEmpty(string(lq.Kind)),
+			AfterExternalID: lq.After,
+			RowLimit:        int32(lq.Limit + 1), //nolint:gosec // validated (<= 100)
+		})
+		if err != nil {
+			return err
+		}
+		if len(rows) > lq.Limit {
+			rows = rows[:lq.Limit]
+			next := rows[len(rows)-1].ExternalID
+			page.Next = &next
+		}
+		page.Items = make([]domain.Space, len(rows))
+		for i, r := range rows {
+			if page.Items[i], err = toSpace(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return page, err
+}
+
+// UpdateMemory locks the active memory, computes its new state with apply
+// and stores it.
+func (s *Store) UpdateMemory(ctx context.Context, projectID uuid.UUID, externalID string, id uuid.UUID,
+	apply func(domain.Memory) (domain.MemoryUpdate, error)) (m domain.Memory, err error) {
+	err = s.WithProject(ctx, projectID, func(q *sqlcdb.Queries) error {
+		space, err := getSpace(ctx, q, externalID)
+		if err != nil {
+			return err
+		}
+		row, err := q.GetActiveMemoryForUpdate(ctx, sqlcdb.GetActiveMemoryForUpdateParams{SpaceID: space.ID, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrMemoryNotFound
+		}
+		if err != nil {
+			return err
+		}
+		current, err := toMemory(memoryRow(row), externalID)
+		if err != nil {
+			return err
+		}
+		u, err := apply(current)
+		if err != nil {
+			return err
+		}
+		md, err := json.Marshal(u.Metadata)
+		if err != nil {
+			return err
+		}
+		params := sqlcdb.UpdateMemoryParams{
+			Content: u.Content, Summary: u.Summary, Importance: u.Importance, ExpiresAt: u.ExpiresAt,
+			Metadata: md, KeepEmbedding: u.Embedding == domain.EmbeddingKeep, SpaceID: space.ID, ID: id,
+		}
+		if u.Embedding == domain.EmbeddingReplace {
+			v := pgvector.NewVector(u.NewVector.Vector)
+			params.Embedding, params.EmbeddingModel = &v, &u.NewVector.Model
+		}
+		updated, err := q.UpdateMemory(ctx, params)
+		if err != nil {
+			return err
+		}
+		m, err = toMemory(memoryRow(updated), externalID)
+		return err
+	})
+	return m, err
+}

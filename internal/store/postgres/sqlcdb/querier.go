@@ -19,6 +19,7 @@ type Querier interface {
 	// pgvector stores the declared dimension as the column type modifier.
 	EmbeddingDimensions(ctx context.Context) (int32, error)
 	GetActiveMemory(ctx context.Context, arg GetActiveMemoryParams) (GetActiveMemoryRow, error)
+	GetActiveMemoryForUpdate(ctx context.Context, arg GetActiveMemoryForUpdateParams) (GetActiveMemoryForUpdateRow, error)
 	GetMemoryByIdempotencyKey(ctx context.Context, arg GetMemoryByIdempotencyKeyParams) (GetMemoryByIdempotencyKeyRow, error)
 	GetProject(ctx context.Context, id uuid.UUID) (GetProjectRow, error)
 	GetProjectBySlug(ctx context.Context, slug string) (GetProjectBySlugRow, error)
@@ -37,6 +38,8 @@ type Querier interface {
 	ListLinksOfMemories(ctx context.Context, arg ListLinksOfMemoriesParams) ([]ListLinksOfMemoriesRow, error)
 	// Keyset pagination on (occurred_at DESC, id DESC), served by memories_active_timeline_idx.
 	ListMemories(ctx context.Context, arg ListMemoriesParams) ([]ListMemoriesRow, error)
+	// Keyset pagination on external_id.
+	ListSpaces(ctx context.Context, arg ListSpacesParams) ([]MemorySpace, error)
 	Ping(ctx context.Context) (int32, error)
 	// Full-text candidates ranked by ts_rank_cd, with the optional recall filters.
 	RecallLexical(ctx context.Context, arg RecallLexicalParams) ([]RecallLexicalRow, error)
@@ -51,6 +54,8 @@ type Querier interface {
 	SetCurrentProject(ctx context.Context, projectID string) error
 	SoftDeleteMemory(ctx context.Context, arg SoftDeleteMemoryParams) (int64, error)
 	TouchAPIKey(ctx context.Context, keyID uuid.UUID) error
+	// keep_embedding = false replaces the vector and model (both NULL to clear).
+	UpdateMemory(ctx context.Context, arg UpdateMemoryParams) (UpdateMemoryRow, error)
 	UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (MemorySpace, error)
 }
 

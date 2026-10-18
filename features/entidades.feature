@@ -185,3 +185,49 @@ Funcionalidade: Entidades de domínio da memória
       Dado uma relação "related_to" da memória para ela mesma
       Quando preparo a relação
       Então a preparação deve falhar no campo "target_memory_id"
+
+  Regra: Uma alteração parcial respeita os campos imutáveis
+
+    Cenário: Alterar o conteúdo sem novo embedding remove o embedding antigo
+      Dado uma memória gravada com embedding do modelo "modelo-a"
+      Quando aplico a alteração com "content" igual a "O usuário prefere planilhas"
+      Então a preparação deve ser aceita
+      E o embedding deve ser "removido"
+
+    Cenário: Alterar só a importância mantém o embedding
+      Dado uma memória gravada com embedding do modelo "modelo-a"
+      Quando aplico a alteração com "importance" igual a "0.9"
+      Então a preparação deve ser aceita
+      E o embedding deve ser "mantido"
+
+    Esquema do Cenário: Alteração inválida
+      Dado uma memória gravada com embedding do modelo "modelo-a"
+      Quando aplico a alteração com "<campo>" igual a "<valor>"
+      Então a preparação deve falhar no campo "<campo>"
+
+      Exemplos:
+        | campo       | valor                |
+        | memory_type | decision             |
+        | source      | conversation         |
+        | content     |                      |
+        | importance  | 1.5                  |
+        | expires_at  | 2000-01-01T00:00:00Z |
+
+    Cenário: Metadata é mesclada conforme o JSON Merge Patch
+      Dado uma memória gravada com metadata {"canal": "whatsapp", "tema": "relatórios"}
+      Quando aplico a alteração de metadata {"tema": null, "prioridade": "alta"}
+      Então a preparação deve ser aceita
+      E a metadata deve ser {"canal": "whatsapp", "prioridade": "alta"}
+
+  Regra: A listagem de espaços tem limites
+
+    Esquema do Cenário: Parâmetro de listagem inválido
+      Dado uma listagem de espaços com "<campo>" igual a "<valor>"
+      Quando preparo a listagem de espaços
+      Então a preparação deve falhar no campo "<campo>"
+
+      Exemplos:
+        | campo | valor   |
+        | kind  | empresa |
+        | limit | 0       |
+        | limit | 101     |

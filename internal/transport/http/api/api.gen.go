@@ -272,6 +272,18 @@ type MemoryPage struct {
 	NextCursor *string  `json:"next_cursor,omitempty"`
 }
 
+// MemoryPatch defines model for MemoryPatch.
+type MemoryPatch struct {
+	Content    *string    `json:"content,omitempty"`
+	Embedding  *Embedding `json:"embedding,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Importance *float32   `json:"importance,omitempty"`
+
+	// Metadata Atributos livres do cliente (objeto JSON, até 8 KiB).
+	Metadata *Metadata `json:"metadata,omitempty"`
+	Summary  *string   `json:"summary,omitempty"`
+}
+
 // MemoryType defines model for MemoryType.
 type MemoryType string
 
@@ -404,6 +416,12 @@ type SpaceInput struct {
 // SpaceKind defines model for SpaceKind.
 type SpaceKind string
 
+// SpacePage defines model for SpacePage.
+type SpacePage struct {
+	Items      []Space `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -443,6 +461,15 @@ type Unavailable = Problem
 // ValidationFailed RFC 9457 com extensões `code`, `request_id` e `errors`.
 type ValidationFailed = Problem
 
+// ListSpacesParams defines parameters for ListSpaces.
+type ListSpacesParams struct {
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Cursor opaco retornado em `next_cursor`.
+	Cursor *Cursor    `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Kind   *SpaceKind `form:"kind,omitempty" json:"kind,omitempty"`
+}
+
 // ListMemoriesParams defines parameters for ListMemories.
 type ListMemoriesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -478,6 +505,9 @@ type RetainMemoryJSONRequestBody = MemoryInput
 
 // RetainMemoriesBatchJSONRequestBody defines body for RetainMemoriesBatch for application/json ContentType.
 type RetainMemoriesBatchJSONRequestBody RetainMemoriesBatchJSONBody
+
+// UpdateMemoryApplicationMergePatchPlusJSONRequestBody defines body for UpdateMemory for application/merge-patch+json ContentType.
+type UpdateMemoryApplicationMergePatchPlusJSONRequestBody = MemoryPatch
 
 // CreateLinkJSONRequestBody defines body for CreateLink for application/json ContentType.
 type CreateLinkJSONRequestBody = LinkInput
