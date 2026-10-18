@@ -1,0 +1,153 @@
+package domain
+
+import (
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+// MatchStrategy names the retrieval strategy that found a memory.
+type MatchStrategy string
+
+const (
+	MatchLexical  MatchStrategy = "lexical"
+	MatchSemantic MatchStrategy = "semantic"
+)
+
+// Limits and defaults of a recall, mirroring api/openapi.yaml.
+const (
+	DefaultRecallLimit    = 10
+	MaxRecallLimit        = 100
+	DefaultCandidateLimit = 50
+	MaxCandidateLimit     = 200
+	MaxQueryLength        = 2000 // characters
+)
+
+// RecallFilters restrict both retrieval strategies.
+type RecallFilters struct {
+	MemoryTypes    []MemoryType
+	OccurredAfter  *time.Time
+	OccurredBefore *time.Time
+	SourceType     string
+	SourceRef      string
+	Metadata       Metadata // containment: metadata @> filter
+}
+
+// RecallInput is a client recall request. Nil pointers mean the field was
+// omitted and its default applies.
+type RecallInput struct {
+	Query          *string
+	QueryEmbedding *Embedding
+	Filters        RecallFilters
+	Limit          *int
+	CandidateLimit *int
+	MaxTokens      *int
+	IncludeLinks   bool
+}
+
+// RecallQuery is a validated RecallInput with defaults resolved.
+type RecallQuery struct {
+	Query          string // empty when only QueryEmbedding is used
+	QueryEmbedding *Embedding
+	Filters        RecallFilters
+	Limit          int
+	CandidateLimit int
+	MaxTokens      *int
+	IncludeLinks   bool
+}
+
+// Prepare validates the input and resolves defaults.
+func (in RecallInput) Prepare() (RecallQuery, error) {
+	var v fieldErrors
+	q := RecallQuery{
+		QueryEmbedding: in.QueryEmbedding,
+		Filters:        in.Filters,
+		Limit:          DefaultRecallLimit,
+		CandidateLimit: DefaultCandidateLimit,
+		MaxTokens:      in.MaxTokens,
+		IncludeLinks:   in.IncludeLinks,
+	}
+
+	if in.Query == nil && in.QueryEmbedding == nil {
+		v.add("query", "informe query, query_embedding ou ambos")
+	}
+	if in.Query != nil {
+		q.Query = *in.Query
+		switch {
+		case strings.TrimSpace(q.Query) == "":
+			v.add("query", "não pode ser vazia")
+		case utf8.RuneCountInString(q.Query) > MaxQueryLength:
+			v.add("query", "excede %d caracteres", MaxQueryLength)
+		}
+	}
+	validateEmbedding(&v, "query_embedding", in.QueryEmbedding)
+	if in.Limit != nil {
+		q.Limit = *in.Limit
+		if q.Limit < 1 || q.Limit > MaxRecallLimit {
+			v.add("limit", "deve estar entre 1 e %d", MaxRecallLimit)
+		}
+	}
+	if in.CandidateLimit != nil {
+		q.CandidateLimit = *in.CandidateLimit
+		if q.CandidateLimit < 1 || q.CandidateLimit > MaxCandidateLimit {
+			v.add("candidate_limit", "deve estar entre 1 e %d", MaxCandidateLimit)
+		}
+	}
+	if in.MaxTokens != nil && *in.MaxTokens < 1 {
+		v.add("max_tokens", "deve ser maior que zero")
+	}
+	validateRecallFilters(&v, in.Filters)
+	return q, v.err()
+}
+
+func validateRecallFilters(v *fieldErrors, f RecallFilters) {
+	for _, t := range f.MemoryTypes {
+		if !t.Valid() {
+			v.add("filters.memory_types", "valor %q não é aceito", t)
+		}
+	}
+	if f.OccurredAfter != nil && f.OccurredBefore != nil && !f.OccurredBefore.After(*f.OccurredAfter) {
+		v.add("filters.occurred_before", "deve ser posterior a occurred_after")
+	}
+	if utf8.RuneCountInString(f.SourceType) > MaxSourceTypeLength {
+		v.add("filters.source_type", "excede %d caracteres", MaxSourceTypeLength)
+	}
+	if f.Metadata != nil {
+		validateMetadata(v, "filters.metadata", f.Metadata)
+	}
+}
+
+// Lexical reports whether the full-text strategy runs.
+func (q RecallQuery) Lexical() bool { return q.Query != "" }
+
+// Semantic reports whether the vector strategy runs.
+func (q RecallQuery) Semantic() bool { return q.QueryEmbedding != nil }
+
+// RecallItem is a ranked memory. Ranks are 1-based positions in each
+// strategy's candidate list; nil means the strategy did not find it.
+type RecallItem struct {
+	Memory       Memory
+	Score        float64
+	LexicalRank  *int
+	SemanticRank *int
+}
+
+// MatchedBy lists the strategies that found the memory.
+func (i RecallItem) MatchedBy() []MatchStrategy {
+	var s []MatchStrategy
+	if i.LexicalRank != nil {
+		s = append(s, MatchLexical)
+	}
+	if i.SemanticRank != nil {
+		s = append(s, MatchSemantic)
+	}
+	return s
+}
+
+// RecallResult is the recall response. Truncated is true when the token
+// budget discarded results.
+type RecallResult struct {
+	Items         []RecallItem
+	TokenEstimate int
+	Truncated     bool
+}
