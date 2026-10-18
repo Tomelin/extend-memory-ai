@@ -331,6 +331,56 @@ func initAPIScenario(sc *godog.ScenarioContext, e *env) {
 		return nil
 	})
 
+	// Contract completion.
+	sc.Step(`^que o projeto "([^"]+)" também possui os espaços "([^"]+)" e "([^"]+)"$`, func(_, a, b string) error {
+		return errors.Join(s.createSpace(a), s.createSpace(b))
+	})
+	sc.Step(`^listo os espaços com "limit" igual a (\d+)$`, func(limit int) {
+		s.lastPath = fmt.Sprintf("/v1/spaces?limit=%d", limit)
+		s.send(http.MethodGet, s.lastPath, s.token, nil)
+	})
+	sc.Step(`^listo a próxima página de espaços$`, func() { s.send(http.MethodGet, s.lastPath+"&cursor="+s.nextCursor, s.token, nil) })
+	sc.Step(`^devem ser retornados (\d+) espaços e um "next_cursor"$`, func(n int) error { return s.page(n, true) })
+	sc.Step(`^deve ser retornado (\d+) espaço e nenhum "next_cursor"$`, func(n int) error { return s.page(n, false) })
+	sc.Step(`^listo os espaços do tipo "([^"]+)"$`, func(kind string) { s.send(http.MethodGet, "/v1/spaces?kind="+kind, s.token, nil) })
+	sc.Step(`^somente o espaço "([^"]+)" deve ser retornado$`, func(externalID string) error {
+		var p struct {
+			Items []struct {
+				ExternalID string `json:"external_id"`
+			}
+		}
+		if err := json.Unmarshal(s.resp.Body.Bytes(), &p); err != nil {
+			return err
+		}
+		if len(p.Items) != 1 || p.Items[0].ExternalID != externalID {
+			return fmt.Errorf("spaces = %s", s.resp.Body)
+		}
+		return nil
+	})
+	sc.Step(`^altero "([^"]+)" dessa memória para "([^"]+)"$`, func(field, value string) {
+		s.send(http.MethodPatch, "/v1/spaces/"+defaultSpace+"/memories/"+s.memoryID, s.token, map[string]any{field: value})
+	})
+	sc.Step(`^"([^"]+)" não deve estar presente no corpo$`, func(field string) error {
+		body, err := s.body()
+		if err != nil {
+			return err
+		}
+		if v, ok := body[field]; ok && v != nil {
+			return fmt.Errorf("%s = %v", field, v)
+		}
+		return nil
+	})
+	sc.Step(`^um recall somente com embedding do modelo "([^"]+)" não deve retorná-la$`, func(model string) error {
+		s.recall(map[string]any{"query_embedding": embedding(1536, model)})
+		if err := s.statusIs(http.StatusOK); err != nil {
+			return err
+		}
+		if s.recalled(s.memoryID) != nil {
+			return fmt.Errorf("memory with cleared embedding was recalled: %s", s.resp.Body)
+		}
+		return nil
+	})
+
 	sc.Step(`^envio um recall sem "query" e sem "query_embedding"$`, func() { s.recall(map[string]any{}) })
 	sc.Step(`^que existem (\d+) memórias relevantes de aproximadamente (\d+) tokens cada$`, func(n, tokens int) error {
 		content := strings.Repeat("relatório ", tokens*4/len([]rune("relatório ")))

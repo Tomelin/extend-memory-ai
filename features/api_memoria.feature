@@ -160,6 +160,30 @@ Funcionalidade: API HTTP do serviço de memória
       Quando envio um recall por "memória A" incluindo relações
       Então o resultado de "A" deve incluir a relação "supports" para "B"
 
+  Regra: O contrato está completo
+
+    Cenário: Listar espaços por tipo e com paginação
+      Dado que o projeto "assistente-financeiro" também possui os espaços "agente-1" e "agente-2"
+      Quando listo os espaços com "limit" igual a 2
+      Então devem ser retornados 2 espaços e um "next_cursor"
+      Quando listo a próxima página de espaços
+      Então deve ser retornado 1 espaço e nenhum "next_cursor"
+      Quando listo os espaços do tipo "user"
+      Então somente o espaço "usuario-123" deve ser retornado
+
+    Cenário: Alterar o conteúdo remove o embedding antigo
+      Dado que existe a memória "O usuário prefere relatórios em PDF" com embedding do modelo "modelo-a"
+      Quando altero "content" dessa memória para "O usuário prefere planilhas"
+      Então a resposta deve ter status 200
+      E "embedding_model" não deve estar presente no corpo
+      E um recall somente com embedding do modelo "modelo-a" não deve retorná-la
+
+    Cenário: Campo imutável não pode ser alterado
+      Dado que gravei a memória "O usuário prefere relatórios em PDF" com a chave de idempotência "evento-910"
+      Quando altero "memory_type" dessa memória para "decision"
+      Então a resposta deve ter status 422 e código "validation_failed"
+      E o erro deve apontar o campo "memory_type"
+
   Regra: Erros seguem um formato único
 
     Cenário: Corpo de erro no padrão problem+json
