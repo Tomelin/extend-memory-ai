@@ -111,11 +111,16 @@ Funcionalidade: API HTTP do serviço de memória
       Então a memória deve ser retornada
       E "matched_by" deve conter "lexical"
 
-    @etapa-3
     Cenário: Embeddings de modelos diferentes não são comparados
       Dado que existe uma memória com embedding do modelo "modelo-a" e sem termos em comum com a consulta
       Quando envio um recall somente com embedding do modelo "modelo-b"
       Então a memória não deve ser retornada
+
+    Cenário: Recuperar por significado sem termos em comum
+      Dado que existe uma memória com embedding do modelo "modelo-a" e sem termos em comum com a consulta
+      Quando envio um recall somente com embedding do modelo "modelo-a"
+      Então a memória deve ser retornada
+      E "matched_by" deve conter "semantic"
 
     Cenário: Recall sem consulta textual nem embedding
       Quando envio um recall sem "query" e sem "query_embedding"
@@ -129,11 +134,31 @@ Funcionalidade: API HTTP do serviço de memória
 
   Regra: Relações respeitam o espaço
 
-    @etapa-3
     Cenário: Relação entre espaços diferentes é rejeitada
       Dado que existem as memórias "A" no espaço "usuario-123" e "B" no espaço "usuario-456"
       Quando crio a relação "supports" de "A" para "B" no espaço "usuario-123"
       Então a resposta deve ter status 422 e código "validation_failed"
+
+    Cenário: Criar, listar e remover uma relação
+      Dado que existem as memórias "A" no espaço "usuario-123" e "B" no espaço "usuario-123"
+      Quando crio a relação "supports" de "A" para "B" no espaço "usuario-123"
+      Então a resposta deve ter status 201
+      Quando listo as relações de entrada de "B" no espaço "usuario-123"
+      Então deve existir somente a relação "supports" de "A" para "B"
+      Quando removo a relação "supports" de "A" para "B" no espaço "usuario-123"
+      Então a resposta deve ter status 204
+
+    Cenário: Relação duplicada
+      Dado que existem as memórias "A" no espaço "usuario-123" e "B" no espaço "usuario-123"
+      E que criei a relação "supports" de "A" para "B" no espaço "usuario-123"
+      Quando crio a relação "supports" de "A" para "B" no espaço "usuario-123"
+      Então a resposta deve ter status 409 e código "link_conflict"
+
+    Cenário: Recall inclui as relações diretas
+      Dado que existem as memórias "A" no espaço "usuario-123" e "B" no espaço "usuario-123"
+      E que criei a relação "supports" de "A" para "B" no espaço "usuario-123"
+      Quando envio um recall por "memória A" incluindo relações
+      Então o resultado de "A" deve incluir a relação "supports" para "B"
 
   Regra: Erros seguem um formato único
 

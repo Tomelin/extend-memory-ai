@@ -136,8 +136,7 @@ func TestFeatures(t *testing.T) {
 		init       func(*godog.ScenarioContext, *env)
 	}{
 		{name: "fundacao", init: initScenario},
-		// Scenarios tagged @etapa-3 depend on semantic search and links.
-		{name: "api_memoria", tags: "~@etapa-3", init: initAPIScenario},
+		{name: "api_memoria", init: initAPIScenario},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {
