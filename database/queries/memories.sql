@@ -99,3 +99,27 @@ WHERE space_id = sqlc.arg(space_id)
   AND (sqlc.narg(metadata)::jsonb IS NULL OR metadata @> sqlc.narg(metadata)::jsonb)
 ORDER BY rank
 LIMIT sqlc.arg(candidate_limit)::int;
+
+-- name: GetActiveMemoryForUpdate :one
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+FROM memories
+WHERE space_id = sqlc.arg(space_id) AND id = sqlc.arg(id)
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+FOR UPDATE;
+
+-- name: UpdateMemory :one
+-- keep_embedding = false replaces the vector and model (both NULL to clear).
+UPDATE memories
+SET content = sqlc.arg(content),
+    summary = sqlc.narg(summary),
+    importance = sqlc.arg(importance),
+    expires_at = sqlc.narg(expires_at),
+    metadata = sqlc.arg(metadata),
+    embedding = CASE WHEN sqlc.arg(keep_embedding)::boolean THEN embedding ELSE sqlc.narg(embedding)::vector END,
+    embedding_model = CASE WHEN sqlc.arg(keep_embedding)::boolean THEN embedding_model ELSE sqlc.narg(embedding_model)::text END
+WHERE space_id = sqlc.arg(space_id) AND id = sqlc.arg(id)
+RETURNING id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at;
