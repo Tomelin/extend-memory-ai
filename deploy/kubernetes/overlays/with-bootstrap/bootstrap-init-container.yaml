@@ -1,0 +1,19 @@
+# Inserted before "migrate": extensions must exist before 000001_init.
+- op: add
+  path: /spec/template/spec/initContainers/0
+  value:
+    name: bootstrap-extensions
+    image: memory-api
+    command: ["/usr/local/bin/memory-admin", "bootstrap", "extensions"]
+    env:
+      - name: MEMORY_BOOTSTRAP_DATABASE_URL
+        valueFrom:
+          secretKeyRef: {name: memory-api-bootstrap, key: MEMORY_BOOTSTRAP_DATABASE_URL}
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {memory: 128Mi}
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]

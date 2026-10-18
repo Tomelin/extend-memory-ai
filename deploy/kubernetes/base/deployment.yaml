@@ -21,6 +21,25 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Applies pending migrations before the API starts. Concurrent pods
+        # are serialized by golang-migrate's advisory lock; with nothing to
+        # apply it is a no-op. Only this container gets the migrator role.
+        - name: migrate
+          image: memory-api
+          command: ["/usr/local/bin/memory-admin", "migrate", "up"]
+          env:
+            - name: MEMORY_MIGRATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: memory-api, key: MEMORY_MIGRATOR_DATABASE_URL}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
       containers:
         - name: memory-api
           image: memory-api

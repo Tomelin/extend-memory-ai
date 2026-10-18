@@ -1,0 +1,14 @@
+# Adds an init container that creates the PostgreSQL extensions before the
+# migrations, for databases where no DBA ran database/bootstrap. It needs the
+# Secret "memory-api-bootstrap" (see secret.example.yaml) with a role allowed
+# to create extensions; pgvector usually requires a superuser
+# (rds_superuser on RDS, cloudsqlsuperuser on Cloud SQL).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - path: bootstrap-init-container.yaml
+    target:
+      kind: Deployment
+      name: memory-api
