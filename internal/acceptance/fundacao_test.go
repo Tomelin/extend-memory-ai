@@ -137,6 +137,7 @@ func TestFeatures(t *testing.T) {
 	}{
 		{name: "fundacao", init: initScenario},
 		{name: "api_memoria", init: initAPIScenario},
+		{name: "producao", init: initProdScenario},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {

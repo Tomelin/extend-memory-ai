@@ -103,13 +103,15 @@ func New(ctx context.Context, cfg config.API, opts Options) (_ *App, err error) 
 		return nil, err
 	}
 	a.Handler, err = httptransport.NewRouter(httptransport.Deps{
-		ServiceName:   cfg.ServiceName,
-		Logger:        logger,
-		Health:        store,
-		Projects:      store,
-		Memories:      memories,
-		Authenticator: authn,
-		MaxBodyBytes:  cfg.MaxBodyBytes,
+		ServiceName:    cfg.ServiceName,
+		Logger:         logger,
+		Health:         store,
+		Projects:       store,
+		Memories:       memories,
+		Authenticator:  authn,
+		MaxBodyBytes:   cfg.MaxBodyBytes,
+		RateLimitRPS:   cfg.RateLimitRPS,
+		RateLimitBurst: cfg.RateLimitBurst,
 	})
 	if err != nil {
 		return nil, err

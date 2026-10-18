@@ -1,0 +1,20 @@
+# Non-secret settings. Credentials come from the Secret "memory-api"
+# (see secret.example.yaml), never from this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memory-api
+data:
+  MEMORY_ENVIRONMENT: production
+  MEMORY_LOG_LEVEL: info
+  MEMORY_LOG_FORMAT: json
+  MEMORY_DB_MAX_CONNS: "20"
+  MEMORY_RATE_LIMIT_RPS: "50"
+  MEMORY_RATE_LIMIT_BURST: "100"
+  MEMORY_SHUTDOWN_TIMEOUT: 20s
+  OTEL_SERVICE_NAME: memory-api
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production,service.namespace=extend-memory-ai
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "0.1"
