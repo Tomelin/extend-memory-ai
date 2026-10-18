@@ -34,6 +34,7 @@ executado em `task test:integration`.
 | --- | --- |
 | `base/deployment.yaml` | init container `migrate` (`memory-admin migrate up` com o papel `memory_migrator`); 2 réplicas, rolling update sem indisponibilidade, `startupProbe`/`readinessProbe` em `/readyz`, `livenessProbe` em `/healthz`, usuário não root, sistema de arquivos somente leitura |
 | `base/service.yaml` | porta `80` → `http` e `9090` → `metrics` |
+| `base/httproute.yaml` | `HTTPRoute` (Gateway API) para o Envoy Gateway: gateways `https` e `http` do namespace `envoy-gateway`, prefixo `/` → Service `memory-api:80` |
 | `base/hpa.yaml`, `base/pdb.yaml` | 2 a 10 réplicas por CPU (70%); ao menos 1 disponível |
 | `base/configmap.yaml` | configuração não secreta, incluindo a amostragem |
 | `base/purge-cronjob.yaml` | `memory-admin purge` diário às 03:30 |

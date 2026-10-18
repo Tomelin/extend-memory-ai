@@ -1,0 +1,31 @@
+# Exposes the API through Envoy Gateway (Gateway API CRDs required). The
+# route and the Service live in the same namespace, set by kustomize.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: memory-api
+spec:
+  hostnames:
+    - extendmemoty.synera.com.br
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: https
+      namespace: envoy-gateway
+      sectionName: https
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: http
+      namespace: envoy-gateway
+      sectionName: http
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: memory-api
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
