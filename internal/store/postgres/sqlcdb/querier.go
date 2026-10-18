@@ -13,21 +13,36 @@ import (
 type Querier interface {
 	// Live memories visible to the current project (RLS applies).
 	CountMemories(ctx context.Context) (int64, error)
+	// Physical removal; memories and links go with ON DELETE CASCADE.
+	DeleteSpace(ctx context.Context, externalID string) (int64, error)
 	// pgvector stores the declared dimension as the column type modifier.
 	EmbeddingDimensions(ctx context.Context) (int32, error)
+	GetActiveMemory(ctx context.Context, arg GetActiveMemoryParams) (GetActiveMemoryRow, error)
+	GetMemoryByIdempotencyKey(ctx context.Context, arg GetMemoryByIdempotencyKeyParams) (GetMemoryByIdempotencyKeyRow, error)
 	GetProject(ctx context.Context, id uuid.UUID) (GetProjectRow, error)
 	GetProjectBySlug(ctx context.Context, slug string) (GetProjectBySlugRow, error)
+	GetSpaceByExternalID(ctx context.Context, externalID string) (MemorySpace, error)
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
+	// Returns no row when the idempotency key already exists in the space.
+	InsertMemory(ctx context.Context, arg InsertMemoryParams) (InsertMemoryRow, error)
 	InsertProject(ctx context.Context, arg InsertProjectParams) (InsertProjectRow, error)
+	// Returns no row when the space already exists; the caller then updates it.
+	InsertSpace(ctx context.Context, arg InsertSpaceParams) (MemorySpace, error)
 	ListAPIKeys(ctx context.Context, projectSlug string) ([]ListAPIKeysRow, error)
+	// Keyset pagination on (occurred_at DESC, id DESC), served by memories_active_timeline_idx.
+	ListMemories(ctx context.Context, arg ListMemoriesParams) ([]ListMemoriesRow, error)
 	Ping(ctx context.Context) (int32, error)
+	// Full-text candidates ranked by ts_rank_cd, with the optional recall filters.
+	RecallLexical(ctx context.Context, arg RecallLexicalParams) ([]RecallLexicalRow, error)
 	ResolveAPIKey(ctx context.Context, prefix string) (ResolveAPIKeyRow, error)
 	RevokeAPIKey(ctx context.Context, prefix string) (int64, error)
 	SchemaVersion(ctx context.Context) (SchemaMigration, error)
 	// Transaction-scoped (is_local = true): the setting never leaks to the next
 	// user of the pooled connection.
 	SetCurrentProject(ctx context.Context, projectID string) error
+	SoftDeleteMemory(ctx context.Context, arg SoftDeleteMemoryParams) (int64, error)
 	TouchAPIKey(ctx context.Context, keyID uuid.UUID) error
+	UpdateSpace(ctx context.Context, arg UpdateSpaceParams) (MemorySpace, error)
 }
 
 var _ Querier = (*Queries)(nil)

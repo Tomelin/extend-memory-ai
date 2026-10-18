@@ -7,6 +7,11 @@ package sqlcdb
 
 import (
 	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 const countMemories = `-- name: CountMemories :one
@@ -21,4 +26,450 @@ func (q *Queries) CountMemories(ctx context.Context) (int64, error) {
 	var total int64
 	err := row.Scan(&total)
 	return total, err
+}
+
+const getActiveMemory = `-- name: GetActiveMemory :one
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+FROM memories
+WHERE space_id = $1 AND id = $2
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+`
+
+type GetActiveMemoryParams struct {
+	SpaceID uuid.UUID
+	ID      uuid.UUID
+}
+
+type GetActiveMemoryRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+func (q *Queries) GetActiveMemory(ctx context.Context, arg GetActiveMemoryParams) (GetActiveMemoryRow, error) {
+	row := q.db.QueryRow(ctx, getActiveMemory, arg.SpaceID, arg.ID)
+	var i GetActiveMemoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.SpaceID,
+		&i.MemoryType,
+		&i.Content,
+		&i.Summary,
+		&i.EmbeddingModel,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.Importance,
+		&i.OccurredAt,
+		&i.ExpiresAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getMemoryByIdempotencyKey = `-- name: GetMemoryByIdempotencyKey :one
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+FROM memories
+WHERE space_id = $1 AND idempotency_key = $2
+`
+
+type GetMemoryByIdempotencyKeyParams struct {
+	SpaceID        uuid.UUID
+	IdempotencyKey *string
+}
+
+type GetMemoryByIdempotencyKeyRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+func (q *Queries) GetMemoryByIdempotencyKey(ctx context.Context, arg GetMemoryByIdempotencyKeyParams) (GetMemoryByIdempotencyKeyRow, error) {
+	row := q.db.QueryRow(ctx, getMemoryByIdempotencyKey, arg.SpaceID, arg.IdempotencyKey)
+	var i GetMemoryByIdempotencyKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.SpaceID,
+		&i.MemoryType,
+		&i.Content,
+		&i.Summary,
+		&i.EmbeddingModel,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.Importance,
+		&i.OccurredAt,
+		&i.ExpiresAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const insertMemory = `-- name: InsertMemory :one
+INSERT INTO memories (
+  project_id, space_id, memory_type, content, summary, embedding, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata
+) VALUES (
+  $1, $2, $3, $4,
+  $5, $6, $7,
+  $8, $9, $10,
+  $11, $12, $13,
+  $14, $15
+)
+ON CONFLICT (project_id, space_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+DO NOTHING
+RETURNING id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+`
+
+type InsertMemoryParams struct {
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	Embedding       *pgvector_go.Vector
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+}
+
+type InsertMemoryRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+// Returns no row when the idempotency key already exists in the space.
+func (q *Queries) InsertMemory(ctx context.Context, arg InsertMemoryParams) (InsertMemoryRow, error) {
+	row := q.db.QueryRow(ctx, insertMemory,
+		arg.ProjectID,
+		arg.SpaceID,
+		arg.MemoryType,
+		arg.Content,
+		arg.Summary,
+		arg.Embedding,
+		arg.EmbeddingModel,
+		arg.SourceType,
+		arg.SourceRef,
+		arg.IdempotencyKey,
+		arg.IdempotencyHash,
+		arg.Importance,
+		arg.OccurredAt,
+		arg.ExpiresAt,
+		arg.Metadata,
+	)
+	var i InsertMemoryRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.SpaceID,
+		&i.MemoryType,
+		&i.Content,
+		&i.Summary,
+		&i.EmbeddingModel,
+		&i.SourceType,
+		&i.SourceRef,
+		&i.IdempotencyKey,
+		&i.IdempotencyHash,
+		&i.Importance,
+		&i.OccurredAt,
+		&i.ExpiresAt,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const listMemories = `-- name: ListMemories :many
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at
+FROM memories
+WHERE space_id = $1
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  AND ($2::text[] IS NULL OR memory_type = ANY ($2::text[]))
+  AND ($3::timestamptz IS NULL OR occurred_at >= $3::timestamptz)
+  AND ($4::timestamptz IS NULL OR occurred_at < $4::timestamptz)
+  AND ($5::text IS NULL OR source_type = $5::text)
+  AND ($6::text IS NULL OR source_ref = $6::text)
+  AND ($7::timestamptz IS NULL
+       OR (occurred_at, id) < ($7::timestamptz, $8::uuid))
+ORDER BY occurred_at DESC, id DESC
+LIMIT $9::int
+`
+
+type ListMemoriesParams struct {
+	SpaceID         uuid.UUID
+	MemoryTypes     []string
+	OccurredAfter   *time.Time
+	OccurredBefore  *time.Time
+	SourceType      *string
+	SourceRef       *string
+	AfterOccurredAt *time.Time
+	AfterID         *uuid.UUID
+	RowLimit        int32
+}
+
+type ListMemoriesRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
+// Keyset pagination on (occurred_at DESC, id DESC), served by memories_active_timeline_idx.
+func (q *Queries) ListMemories(ctx context.Context, arg ListMemoriesParams) ([]ListMemoriesRow, error) {
+	rows, err := q.db.Query(ctx, listMemories,
+		arg.SpaceID,
+		arg.MemoryTypes,
+		arg.OccurredAfter,
+		arg.OccurredBefore,
+		arg.SourceType,
+		arg.SourceRef,
+		arg.AfterOccurredAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMemoriesRow
+	for rows.Next() {
+		var i ListMemoriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.SpaceID,
+			&i.MemoryType,
+			&i.Content,
+			&i.Summary,
+			&i.EmbeddingModel,
+			&i.SourceType,
+			&i.SourceRef,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.Importance,
+			&i.OccurredAt,
+			&i.ExpiresAt,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recallLexical = `-- name: RecallLexical :many
+SELECT id, project_id, space_id, memory_type, content, summary, embedding_model,
+  source_type, source_ref, idempotency_key, idempotency_hash, importance,
+  occurred_at, expires_at, metadata, created_at, updated_at, deleted_at,
+  row_number() OVER (ORDER BY ts_rank_cd(search_vector, q) DESC, occurred_at DESC, id)::int AS rank
+FROM memories, websearch_to_tsquery('portuguese_unaccent', $1::text) AS q
+WHERE space_id = $2
+  AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+  AND search_vector @@ q
+  AND ($3::text[] IS NULL OR memory_type = ANY ($3::text[]))
+  AND ($4::timestamptz IS NULL OR occurred_at >= $4::timestamptz)
+  AND ($5::timestamptz IS NULL OR occurred_at < $5::timestamptz)
+  AND ($6::text IS NULL OR source_type = $6::text)
+  AND ($7::text IS NULL OR source_ref = $7::text)
+  AND ($8::jsonb IS NULL OR metadata @> $8::jsonb)
+ORDER BY rank
+LIMIT $9::int
+`
+
+type RecallLexicalParams struct {
+	Query          string
+	SpaceID        uuid.UUID
+	MemoryTypes    []string
+	OccurredAfter  *time.Time
+	OccurredBefore *time.Time
+	SourceType     *string
+	SourceRef      *string
+	Metadata       []byte
+	CandidateLimit int32
+}
+
+type RecallLexicalRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	SpaceID         uuid.UUID
+	MemoryType      string
+	Content         string
+	Summary         *string
+	EmbeddingModel  *string
+	SourceType      *string
+	SourceRef       *string
+	IdempotencyKey  *string
+	IdempotencyHash []byte
+	Importance      float32
+	OccurredAt      time.Time
+	ExpiresAt       *time.Time
+	Metadata        json.RawMessage
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	Rank            int32
+}
+
+// Full-text candidates ranked by ts_rank_cd, with the optional recall filters.
+func (q *Queries) RecallLexical(ctx context.Context, arg RecallLexicalParams) ([]RecallLexicalRow, error) {
+	rows, err := q.db.Query(ctx, recallLexical,
+		arg.Query,
+		arg.SpaceID,
+		arg.MemoryTypes,
+		arg.OccurredAfter,
+		arg.OccurredBefore,
+		arg.SourceType,
+		arg.SourceRef,
+		arg.Metadata,
+		arg.CandidateLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecallLexicalRow
+	for rows.Next() {
+		var i RecallLexicalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.SpaceID,
+			&i.MemoryType,
+			&i.Content,
+			&i.Summary,
+			&i.EmbeddingModel,
+			&i.SourceType,
+			&i.SourceRef,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.Importance,
+			&i.OccurredAt,
+			&i.ExpiresAt,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Rank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const softDeleteMemory = `-- name: SoftDeleteMemory :execrows
+UPDATE memories
+SET deleted_at = now()
+WHERE space_id = $1 AND id = $2 AND deleted_at IS NULL
+`
+
+type SoftDeleteMemoryParams struct {
+	SpaceID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) SoftDeleteMemory(ctx context.Context, arg SoftDeleteMemoryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, softDeleteMemory, arg.SpaceID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
