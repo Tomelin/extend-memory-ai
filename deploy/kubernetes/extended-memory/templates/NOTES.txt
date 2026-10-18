@@ -1,0 +1,10 @@
+The {{ .Chart.Name }} release is installed in namespace {{ .Release.Namespace }}.
+
+{{- if not .Values.secret.create }}
+The application expects the Secret {{ include "extended-memory.secretName" . | quote }}
+to already exist in that namespace.
+{{- end }}
+
+HTTPRoute: {{ ternary "enabled" "disabled" .Values.httpRoute.enabled }}
+Service: {{ include "extended-memory.fullname" . }}:{{ .Values.service.httpPort }}
+

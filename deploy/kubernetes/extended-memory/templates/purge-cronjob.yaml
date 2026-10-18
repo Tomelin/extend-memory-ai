@@ -1,0 +1,50 @@
+{{- if .Values.purge.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "extended-memory.purgeName" . }}
+  labels:
+    {{- include "extended-memory.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.purge.schedule | quote }}
+  concurrencyPolicy: {{ .Values.purge.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.purge.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.purge.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.purge.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "extended-memory.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: purge
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: purge
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /usr/local/bin/memory-admin
+                - purge
+                - --deleted-retention
+                - {{ .Values.purge.deletedRetention | quote }}
+              env:
+                - name: MEMORY_ADMIN_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "extended-memory.secretName" . }}
+                      key: MEMORY_ADMIN_DATABASE_URL
+              {{- with .Values.purge.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+{{- end }}

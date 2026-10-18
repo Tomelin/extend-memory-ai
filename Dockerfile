@@ -10,5 +10,5 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/memory-api /out/memory-admin /usr/local/bin/
 EXPOSE 8080 9090
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/memory-api"]

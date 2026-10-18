@@ -81,12 +81,19 @@ tasks:
   docker:build:
     desc: Constrói a imagem do memory-api (sem publicar)
     cmds:
-      - docker build -t extend-memory-ai/memory-api:dev .
+      - docker build -t registry.synera.com.br/synera/memory-api:latest .
+
+  docker:push:
+    desc: Constrói a imagem do memory-api (sem publicar)
+    cmds:
+      - task: docker:build
+      - docker push registry.synera.com.br/synera/memory-api:latest
+
 
   up:
     desc: Sobe PostgreSQL e Prometheus
     cmds:
-      - docker compose up -d --wait
+      - docker compose up -d --wait --remove-orphans
 
   down:
     desc: Derruba o ambiente local

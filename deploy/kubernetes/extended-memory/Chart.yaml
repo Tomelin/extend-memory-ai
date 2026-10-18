@@ -1,0 +1,7 @@
+apiVersion: v2
+name: extended-memory
+description: Helm chart for the Extend Memory AI API
+type: application
+version: 0.1.0
+appVersion: "latest"
+

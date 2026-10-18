@@ -1,0 +1,154 @@
+# Keep the resource names compatible with deploy/kubernetes/base.
+nameOverride: memory-api
+fullnameOverride: memory-api
+
+replicaCount: 2
+
+image:
+  repository: registry.synera.com.br/synera/memory-api
+  pullPolicy: IfNotPresent
+  tag: "dev"
+
+imagePullSecrets: []
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: /metrics
+
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+terminationGracePeriodSeconds: 30
+
+config:
+  MEMORY_ENVIRONMENT: production
+  MEMORY_LOG_LEVEL: info
+  MEMORY_LOG_FORMAT: json
+  MEMORY_DB_MAX_CONNS: "20"
+  MEMORY_RATE_LIMIT_RPS: "50"
+  MEMORY_RATE_LIMIT_BURST: "100"
+  MEMORY_SHUTDOWN_TIMEOUT: 20s
+  OTEL_SERVICE_NAME: memory-api
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production,service.namespace=extend-memory-ai
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "0.1"
+
+# By default, use a Secret provisioned outside Helm, as in the Kustomize base.
+# When secret.create=true, existingSecret is ignored and the values in data are
+# rendered into a release-managed Secret.
+secret:
+  create: false
+  existingSecret: memory-api
+  data:
+    MEMORY_DATABASE_URL: ""
+    MEMORY_ADMIN_DATABASE_URL: ""
+    MEMORY_MIGRATOR_DATABASE_URL: ""
+    OTEL_EXPORTER_OTLP_ENDPOINT: ""
+    OTEL_EXPORTER_OTLP_HEADERS: ""
+
+migration:
+  enabled: true
+  command:
+    - /usr/local/bin/memory-admin
+    - migrate
+    - up
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+service:
+  type: ClusterIP
+  httpPort: 80
+  metricsPort: 9090
+
+probes:
+  startup:
+    enabled: true
+    path: /readyz
+    periodSeconds: 2
+    failureThreshold: 30
+  readiness:
+    enabled: true
+    path: /readyz
+    periodSeconds: 10
+    timeoutSeconds: 3
+  liveness:
+    enabled: true
+    path: /healthz
+    periodSeconds: 10
+    timeoutSeconds: 3
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: null
+
+httpRoute:
+  enabled: true
+  nameOverride: ""
+  annotations: {}
+  hostnames:
+    - extendmemory.synera.com.br
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: https
+      namespace: envoy-gateway
+      sectionName: https
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: http
+      namespace: envoy-gateway
+      sectionName: http
+  path:
+    type: PathPrefix
+    value: /
+  # Leave empty when the backend Service is in the release namespace.
+  backendNamespace: ""
+
+purge:
+  enabled: true
+  nameOverride: memory-purge
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  backoffLimit: 2
+  deletedRetention: 720h
+  resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
