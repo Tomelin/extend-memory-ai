@@ -6,6 +6,8 @@ package pgtest
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -34,13 +36,14 @@ type DB struct {
 	AdminURL    string
 }
 
-// Start runs the container and applies database/bootstrap plus development
-// passwords for the memory_* roles.
+// Start runs the container and applies database/bootstrap. Every role gets a
+// random password generated for this run.
 func Start(ctx context.Context) (*DB, error) {
+	password := randomPassword()
 	c, err := tcpostgres.Run(ctx, image,
 		tcpostgres.WithDatabase("extend_memory_for_ai"),
 		tcpostgres.WithUsername("postgres"),
-		tcpostgres.WithPassword("postgres"),
+		tcpostgres.WithPassword(password),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).WithStartupTimeout(90*time.Second)),
@@ -53,16 +56,16 @@ func Start(ctx context.Context) (*DB, error) {
 	if err != nil {
 		return nil, errors.Join(err, db.Terminate(ctx))
 	}
-	if err := db.bootstrap(ctx); err != nil {
+	if err := db.bootstrap(ctx, password); err != nil {
 		return nil, errors.Join(err, db.Terminate(ctx))
 	}
-	db.MigratorURL = withUser(db.SuperURL, "memory_migrator")
-	db.AppURL = withUser(db.SuperURL, "memory_app")
-	db.AdminURL = withUser(db.SuperURL, "memory_admin")
+	db.MigratorURL = withUser(db.SuperURL, "memory_migrator", password)
+	db.AppURL = withUser(db.SuperURL, "memory_app", password)
+	db.AdminURL = withUser(db.SuperURL, "memory_admin", password)
 	return db, nil
 }
 
-func (db *DB) bootstrap(ctx context.Context) error {
+func (db *DB) bootstrap(ctx context.Context, password string) error {
 	conn, err := pgx.Connect(ctx, db.SuperURL)
 	if err != nil {
 		return err
@@ -84,7 +87,7 @@ func (db *DB) bootstrap(ctx context.Context) error {
 		}
 	}
 	for _, role := range []string{"memory_migrator", "memory_app", "memory_admin"} {
-		if _, err := conn.Exec(ctx, fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", role, role)); err != nil {
+		if _, err := conn.Exec(ctx, fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", role, password)); err != nil {
 			return err
 		}
 	}
@@ -109,11 +112,19 @@ func (db *DB) Terminate(ctx context.Context) error {
 	return db.container.Terminate(ctx)
 }
 
-func withUser(raw, role string) string {
+func withUser(raw, role, password string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		panic(err)
 	}
-	u.User = url.UserPassword(role, role)
+	u.User = url.UserPassword(role, password)
 	return u.String()
+}
+
+func randomPassword() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
