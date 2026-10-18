@@ -1,0 +1,11 @@
+# Contract types for the operations implemented so far. Handlers are written
+# by hand on gin; each new operation is added to include-operation-ids.
+package: api
+output: internal/transport/http/api/api.gen.go
+generate:
+  models: true
+output-options:
+  include-operation-ids:
+    - getCurrentProject
+    - liveness
+    - readiness

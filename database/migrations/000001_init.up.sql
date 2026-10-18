@@ -169,3 +169,6 @@ CREATE POLICY memory_links_isolation_policy ON memory_links
   USING (project_id = NULLIF(current_setting('app.current_project_id', true), '')::uuid)
   WITH CHECK (project_id = NULLIF(current_setting('app.current_project_id', true), '')::uuid);
 
+-- The API checks the schema version at boot, so it must be able to read the
+-- golang-migrate table at any version.
+GRANT SELECT ON schema_migrations TO memory_app, memory_admin;

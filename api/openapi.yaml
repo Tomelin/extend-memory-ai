@@ -514,6 +514,8 @@ components:
             - insufficient_scope
             - space_not_found
             - memory_not_found
+            - not_found
+            - method_not_allowed
             - idempotency_conflict
             - link_conflict
             - payload_too_large

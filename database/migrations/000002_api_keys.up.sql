@@ -23,13 +23,13 @@ CREATE TABLE project_api_keys (
 CREATE INDEX project_api_keys_project_idx ON project_api_keys (project_id);
 
 CREATE FUNCTION resolve_api_key(p_prefix text)
-RETURNS TABLE (key_id uuid, project_id uuid, secret_hash bytea, scopes text[])
+RETURNS SETOF project_api_keys
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT k.id, k.project_id, k.secret_hash, k.scopes
+  SELECT k.*
   FROM project_api_keys k
   WHERE k.prefix = p_prefix
     AND k.revoked_at IS NULL
